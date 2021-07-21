@@ -1,0 +1,12 @@
+name: lpctools
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - pillow
+  - numpy
+  - pandas
+  - pytest
+  - pip:
+    - PyTMX==3.24
+    - pygame
