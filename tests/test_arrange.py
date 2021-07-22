@@ -183,7 +183,7 @@ class TestDistribute():
 		# test with list of files as input
 		outfile = str(tmpdir / 'hair_plain.png')
 		out = lpctools.arrange.distribute(
-			image_paths = glob('tests/arrange_files/hair/hair_plain/*.png'),
+			image_paths = [glob('tests/arrange_files/hair/hair_plain/*.png')],
 			offsets_image = 'tests/arrange_files/hair/reference_points_male.png', 
 			masks_image = 'tests/arrange_files/hair/masks_male.png',  
 			layout = 'universal', 
@@ -208,7 +208,7 @@ class TestDistribute():
 		outfile = str(tmpdir / 'hair_shoulderr.png')
 		# outfile = 'tests/arrange_files/hair/hair_shoulderr.png' #str(tmpdir / 'hair_shoulderr.png')
 		out = lpctools.arrange.distribute(
-			image_paths = glob('tests/arrange_files/hair/hair_shoulderr/*.png'),
+			image_paths = [glob('tests/arrange_files/hair/hair_shoulderr/*.png')],
 			offsets_image = 'tests/arrange_files/hair/reference_points_male.png', 
 			masks_image = 'tests/arrange_files/hair/masks_male.png',  
 			layout = 'universal', 
@@ -223,12 +223,12 @@ class TestDistribute():
 		outfile = str(tmpdir / 'spartan.png')
 		# outfile = 'tests/arrange_files/shield/spartan.png' #str(tmpdir / 'spartan.png')
 		out = lpctools.arrange.distribute(
-			image_paths = glob('tests/arrange_files/shield/spartan/*.png'),
+			image_paths = [glob('tests/arrange_files/shield/spartan/*.png')],
 			offsets_image = 'tests/arrange_files/shield/reference_points_male.png', 
 			masks_image = 'tests/arrange_files/shield/masks_male.png',  
 			layout = 'universal', 
 			output = outfile
-			# ,verbose=True
+			,verbose=True
 			)
 
 		assert filecmp.cmp(outfile,'tests/arrange_files/shield/spartan.png')
@@ -236,10 +236,11 @@ class TestDistribute():
 	def test_distribute_cli(self, tmpdir):
 		import lpctools
 
+		outfile = f"{tmpdir}/crusader.png"
 		lpctools.main(
 			shlex.split(
-			f"-v arrange distribute --input tests/arrange_files/shield/crusader/ --output tests/arrange_files/shield/crusader.png --offsets tests/arrange_files/shield/reference_points_male.png --mask tests/arrange_files/shield/masks_male.png"
+			f"-v arrange distribute --input tests/arrange_files/shield/crusader/ --output {outfile} --offsets tests/arrange_files/shield/reference_points_male.png --mask tests/arrange_files/shield/masks_male.png"
 			)
 		)
 
-		assert True
+		assert filecmp.cmp(outfile,'tests/arrange_files/shield/crusader.png')
