@@ -1,6 +1,7 @@
 import os
 import os.path
 from glob import glob
+import itertools
 
 from PIL import Image
 import collections.abc
@@ -237,7 +238,10 @@ class AnimationFrameID(collections.namedtuple('_AnimationFrameID',['name','direc
 	__slots__ = ()
 
 	def __new__(cls, name=None,direction=None,frame=None):
-		if frame is not None: frame = int(frame)
+		if frame is not None: 
+			if isinstance(frame, str) and frame in 'ABCDEF':
+				frame = int(frame, 16)
+			else: frame = int(frame)
 		return super().__new__(cls, name, direction, frame)
 
 	def format(self,pattern):
@@ -250,9 +254,9 @@ class AnimationFrameID(collections.namedtuple('_AnimationFrameID',['name','direc
 	@staticmethod
 	def from_dict(d):
 		return AnimationFrameID(
-			d['name'] if 'name' in d else d['n'], 
-			d['direction'] if 'direction' in d else d['d'], 
-			d['frame'] if 'frame' in d else d['f'])
+			d['name']      if 'name'      in d else d['n'] if 'n' in d else None,
+			d['direction'] if 'direction' in d else d['d'] if 'd' in d else None,
+			d['frame']     if 'frame'     in d else d['f'] if 'f' in d else None)
 
 
 class AnimationLayout():
@@ -464,9 +468,44 @@ def load_layout(layout):
 		raise Exception(f"Unknown layout {layout}")
 
 
-IMAGE_FRAME_PATTERN = '%n-%d-%f'
+IMAGE_FRAME_PATTERN = '%n-%d-%f.png'
 
-def load_images(image_paths, pattern=IMAGE_FRAME_PATTERN, verbose=False):
+# def load_images(image_paths, pattern=IMAGE_FRAME_PATTERN, verbose=False):
+# 	if not isinstance(pattern, re.Pattern):
+# 		regex = re.compile(
+# 			pattern_to_regex(pattern, placeholders={'f':r'\d+','d':r'\D+'})
+# 		)
+# 	else: 
+# 		regex = pattern
+# 		pattern = pattern.pattern
+# 	if verbose: print(f"Searching pattern '{pattern}'")
+
+# 	# if the pattern contains a path separator, apply the pattern to the full image path
+# 	# otherwise, only apply the basename
+# 	if not os.path.sep in pattern:
+# 		image_names = (os.path.basename(f) for f in image_paths)
+# 	else: image_names = image_paths
+
+# 	# images = {AnimationFrameID.from_dict(regex.match(name).groupdict()) : Image.open(path) for name, path in zip(image_names, image_paths)}
+# 	images = {}
+# 	for name, path in zip(image_names, image_paths):
+# 		m = regex.match(name)
+# 		if m is None: 
+# 			if verbose: print(f"- skip  {path} which does not fit pattern...")
+# 			continue
+
+# 		afi = AnimationFrameID.from_dict(m.groupdict())
+# 		images[afi] = Image.open(path)
+# 		if verbose:
+# 			print(f"- FOUND {path} --> {afi}")
+
+# 	return images
+
+
+def load_images(image_paths, pattern=IMAGE_FRAME_PATTERN, 
+	frame_pattern=re.compile(r'(?P<n>[^\dABCDEF]+)(?P<f>[\dABCDEF]+)?'), 
+	sep='-', verbose=False):
+	
 	if not isinstance(pattern, re.Pattern):
 		regex = re.compile(
 			pattern_to_regex(pattern, placeholders={'f':r'\d+','d':r'\D+'})
@@ -475,6 +514,7 @@ def load_images(image_paths, pattern=IMAGE_FRAME_PATTERN, verbose=False):
 		regex = pattern
 		pattern = pattern.pattern
 	if verbose: print(f"Searching pattern '{pattern}'")
+
 
 	# if the pattern contains a path separator, apply the pattern to the full image path
 	# otherwise, only apply the basename
@@ -486,11 +526,32 @@ def load_images(image_paths, pattern=IMAGE_FRAME_PATTERN, verbose=False):
 	images = {}
 	for name, path in zip(image_names, image_paths):
 		m = regex.match(name)
+
 		if m is None: 
 			if verbose: print(f"- skip  {path} which does not fit pattern...")
 			continue
 
-		afi = AnimationFrameID.from_dict(m.groupdict())
+		id = m.groupdict()
+
+		# if regex contains named capture group "frames", it means the
+		# filename refers to multiple frames, e.g. e-cast1-shoot.png, etc.
+		if 'frames' in id and id['frames'] is not None:
+			if verbose: print(f"- MULTI {path} --> ...")
+
+			# separate these frames, open an Image and build an AFI for each
+			frames = id['frames'].split(sep)
+			for frame in frames:
+				m = frame_pattern.match(frame)
+				if m is None:
+					if verbose: print(f"  - skip  {frame}")
+				else:
+					afi = AnimationFrameID.from_dict({**id, **m.groupdict()})
+					images[afi] = Image.open(path)
+					if verbose: print(f"  - FOUND {frame} = {path} --> {afi}")
+			continue
+
+
+		afi = AnimationFrameID.from_dict(id)
 		images[afi] = Image.open(path)
 		if verbose:
 			print(f"- FOUND {path} --> {afi}")
@@ -508,7 +569,10 @@ def pack_animations(image_paths, layout, output=None, pattern=IMAGE_FRAME_PATTER
 
 	return img
 
-def unpack_animations(image, layout, pattern='%n-%d-%f.png', output_dir='.'):
+def main_pack(args):
+	return pack_animations(args.images, args.layout, args.output, args.pattern)
+
+def unpack_animations(image, layout, pattern=IMAGE_FRAME_PATTERN, output_dir='.'):
 	img = Image.open(image)
 	layout = load_layout(layout)
 
@@ -517,38 +581,99 @@ def unpack_animations(image, layout, pattern='%n-%d-%f.png', output_dir='.'):
 	if pattern is not None:
 		mkdirp(output_dir)
 		for afi, img in images.items():
-			img.save(output_dir + os.path.sep + afi.format(pattern))
+			outfile = mkdirpf(output_dir, afi.format(pattern))
+			img.save(outfile)
 
 	return images
 
+def main_unpack(args):
+	return unpack_animations(args.input, args.layout, args.pattern, args.output_dir)
+
+def repack_animations(images, from_layouts, to_layouts, output_dir='.'):
+	images = listify(images)
+
+	from_layouts = listify(from_layouts)
+
+	if len(from_layouts) != len(images):
+		raise Exception("Must specify same number of source layouts as images. Source layouts: {from_layouts}; images: {images}")
+
+	unpacked_images = {}
+	for image_path, from_layout in zip(images, from_layouts):
+		img = Image.open(image_path)
+		from_layout = load_layout(from_layout)
+		unpacked_images.update( from_layout.unpack_images(img) )
+
+	for layout_name in to_layouts:
+		layout = load_layout(layout_name)
+		new_img = layout.pack_images(unpacked_images)
+		new_img.save(os.path.join(output_dir, layout_name) + '.png')
+
+def main_repack(args):
+	pass
+
+def main_distribute(args):
+	distribute(args.input, args.offsets, args.masks, args.layout, args.output, 
+		verbose=args.verbose)
+
+
+MULTI_FRAME_IMAGE_REGEX = r'(?P<d>(?!bg-)(?!behindbody-)[^\-]+)(?:-(?P<frames>.*))?.png'
+
+distribute_layers = {
+	'bg':         { 'pattern': re.compile('bg-'+MULTI_FRAME_IMAGE_REGEX),
+					# 'pattern': re.compile(r'bg-(?P<d>[^\-]+)(?:-(?P<n>\D+)(?P<f>\d+)?)?.png'),
+					'help': ('Images named like bg-DIRECTION[-SUFFIX] (e.g. bg-n.png, bg-s-hurt1.png, bg-s-shoot2-shoot3.png, etc.) '
+						"will be behind the character's entire body. This is useful for things like long hair behind the character's body, different amounts of which will be exposed depending on the body movements in different animations. (See e.g. the 'ponytail2' hairstyle.)"	
+						),
+					'mask_colors':['#808080','#C0C0C0','#ffffff'] },
+	'behindbody': { 'pattern': re.compile('behindbody-'+MULTI_FRAME_IMAGE_REGEX),
+					# 'pattern': re.compile(r'behindbody-(?P<d>[^\-]+)(?:-(?P<n>\D+)(?P<f>\d+)?)?.png'),
+					'help': ('Images named like behindbody-DIRECTION[-SUFFIX] (e.g. behindbody-w.png, behindbody-s-cast1.png, behindbody-s-cast1-walk1.png, etc.) '
+						"will be behind the character's torso, but still in front of the far arm (in east- and west-facing poses). This is useful for things like a braid slung over the character's far shoulder, which should be obscured by the character's torso, but should itself obscure the far arm. (See e.g. the 'princess', 'shoulderl' and 'shoulderr' hairstyles.)"
+						),
+					'mask_colors':['#808080','#C0C0C0'] },
+	'main':       { 'pattern': re.compile(MULTI_FRAME_IMAGE_REGEX),
+					# 'pattern': re.compile(r'(?P<d>(?!bg-)(?!behindbody-)[^\-]+)(?:-(?P<n>\D+)(?P<f>\d+)?)?.png'), 
+					'help': 'Images named like DIRECTION[-SUFFIX], (e.g. e.png, s-shoot2.png, s-hurt2-hurt3.png, etc.) will be in the foreground.',
+					'mask_colors':['#ffffff'] },
+}
+
 
 def distribute(image_paths, offsets_image, masks_image, layout, output=None, 
-	layers={
-		'bg':         { 'pattern': re.compile(r'bg-(?P<d>[^\-]+)(?:-(?P<n>\D+)(?P<f>\d+)?)?.png'),                    'mask_colors':['#808080','#C0C0C0','#ffffff'] },
-		'behindbody': { 'pattern': re.compile(r'behindbody-(?P<d>[^\-]+)(?:-(?P<n>\D+)(?P<f>\d+)?)?.png'),            'mask_colors':['#808080','#C0C0C0'] },
-		'main':       { 'pattern': re.compile(r'(?P<d>(?!bg-)(?!behindbody-)[^\-]+)(?:-(?P<n>\D+)(?P<f>\d+)?)?.png'), 'mask_colors':['#ffffff'] },
-	}, verbose=False):
+	layers=distribute_layers, verbose=False):
 
 	layout = load_layout(layout)
 
+	image_groups = []
+
+	if verbose: print(f"image_paths: {image_paths}")
+
 	# image_paths: (list of images) | (list of dirs) | (list of lists of images)
 	# list of lists
-	if all(isinstance(el, list) for el in image_paths):
-		pass
-	else:
-		image_paths_are_dirs = [os.path.isdir(p) for p in image_paths]
+	for image_group in image_paths:
+
+		if not isinstance(image_group, list):
+			image_group = [image_group]
+
+	# if all(isinstance(el, list) for el in image_paths):
+	# 	pass
+	# else:
+		image_paths_are_dirs = [os.path.isdir(p) for p in image_group]
 
 		# list of directories
 		if all(image_paths_are_dirs):
-			image_paths = [ glob(os.path.join(d,'*.png')) for d in image_paths ]
+			image_group = list(
+				itertools.chain.from_iterable( glob(os.path.join(d,'*.png')) for d in image_group )
+			)
 		
 		# mixture of images and directories (prohibited due to ambiguity)
 		elif any(image_paths_are_dirs):
 			raise NotImplementedError("image_paths must be either a list of lists, a list of directories, or a list of images; cannot mix directories and images.")
 		
 		# list of images
-		else:
-			image_paths = [ image_paths ]
+		image_groups.append(image_group)
+
+	if verbose: print(f"image_groups: {image_groups}")
+
 
 	# output: str | list of str | None
 	if isinstance(output, str) or output is None:
@@ -556,9 +681,11 @@ def distribute(image_paths, offsets_image, masks_image, layout, output=None,
 	elif not isinstance(output, collections.abc.Iterable):
 		raise ("output must be str, None, or list of same length as image_paths")
 	if len(output) == 1:
-		output = output * len(image_paths)
-	elif len(output) != len(image_paths):
-		raise Exception("Must give either one --output path or an equal number of --output paths to groups of images (--images).")
+		output = output * len(image_groups)
+	elif len(output) != len(image_groups):
+		raise Exception("Must give either one --output path or an equal number of --output paths to groups of --input images.")
+
+	if verbose: print(f"output: {output}")	
 
 	animations = layout.get_animations()
 
@@ -593,7 +720,7 @@ def distribute(image_paths, offsets_image, masks_image, layout, output=None,
 
 
 	output_imgs = []
-	for image_group, group_output in zip(image_paths, output):
+	for image_group, group_output in zip(image_groups, output):
 		if verbose: print(f"BEGIN GROUP '{image_group}'")
 
 		img_layers = []

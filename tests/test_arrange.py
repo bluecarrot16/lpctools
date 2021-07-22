@@ -1,10 +1,6 @@
-import filecmp
-from glob import glob
-def assert_dirs_are_same(d1, d2, **kwargs):
-	_cmp = filecmp.dircmp(d1, d2, **kwargs)
-	assert set(_cmp.diff_files) == set()
-	assert set(_cmp.left_only) == set(_cmp.right_only) == set()
-
+import shlex
+import subprocess
+from testutils import *
 
 class TestAnimationFrameID():
 	def test_afi(self):
@@ -14,6 +10,14 @@ class TestAnimationFrameID():
 		assert afi == ('cast','n',4)
 
 class TestLayout():
+	def test_repack(self, tmpdir):
+		from lpctools.arrange import repack_animations
+		
+		repack_animations('tests/arrange_files/packed-evert.png', 
+			from_layouts='evert', to_layouts=['universal'], output_dir=tmpdir)
+
+		assert filecmp.cmp(tmpdir / 'universal.png', 'tests/arrange_files/packed-universal.png')
+
 	def test_unpack(self, tmpdir):
 		tmpdir = str(tmpdir)
 
@@ -120,6 +124,59 @@ class TestLayout():
 
 
 class TestDistribute():
+	def test_image_regexs(self):
+		from lpctools.arrange import MULTI_FRAME_IMAGE_REGEX, distribute_layers
+
+		assert distribute_layers['main']['pattern'].match('s-cast3-cast6.png').groupdict() == {'d':'s', 'frames':'cast3-cast6'}
+		assert distribute_layers['main']['pattern'].match('s-thrust3-thrust4-thrust5-thrust6.png').groupdict() == {'d':'s', 'frames':'thrust3-thrust4-thrust5-thrust6'}
+		assert distribute_layers['main']['pattern'].match('n.png').groupdict() == {'d':'n', 'frames':None}
+
+		assert distribute_layers['main']['pattern'].match('bg-n.png') is None
+		assert distribute_layers['main']['pattern'].match('behindbody-w.png') is None
+		assert distribute_layers['main']['pattern'].match('behindbody-s-hurt5.png') is None
+
+
+		assert distribute_layers['bg']['pattern'].match('bg-n.png').groupdict() == {'d':'n', 'frames':None}
+		assert distribute_layers['behindbody']['pattern'].match('behindbody-s-hurt5.png').groupdict() == {'d':'s', 'frames':'hurt5'}
+
+
+	def test_load_images(self):
+		import re
+		from lpctools.arrange import load_images, MULTI_FRAME_IMAGE_REGEX, AnimationFrameID
+
+		images = load_images(glob('tests/arrange_files/shield/spartan/*.png'),
+			pattern=re.compile(MULTI_FRAME_IMAGE_REGEX)
+			)
+
+		image_paths = {afi:img.filename for afi, img in images.items()}
+
+		expected_image_paths = {
+		 AnimationFrameID(name='cast', direction='s', frame=3): 'tests/arrange_files/shield/spartan/s-cast3-cast6.png',
+		 AnimationFrameID(name='cast', direction='s', frame=4): 'tests/arrange_files/shield/spartan/s-cast4-cast5.png',
+		 AnimationFrameID(name='cast', direction='s', frame=5): 'tests/arrange_files/shield/spartan/s-cast4-cast5.png',
+		 AnimationFrameID(name='cast', direction='s', frame=6): 'tests/arrange_files/shield/spartan/s-cast3-cast6.png',
+		 AnimationFrameID(name='hurt', direction='s', frame=2): 'tests/arrange_files/shield/spartan/s-hurt2.png',
+		 AnimationFrameID(name='hurt', direction='s', frame=3): 'tests/arrange_files/shield/spartan/s-hurt3.png',
+		 AnimationFrameID(name='hurt', direction='s', frame=4): 'tests/arrange_files/shield/spartan/s-hurt4.png',
+		 AnimationFrameID(name='hurt', direction='s', frame=5): 'tests/arrange_files/shield/spartan/s-hurt5.png',
+		 AnimationFrameID(name='shoot', direction='e', frame=None): 'tests/arrange_files/shield/spartan/e-shoot.png',
+		 AnimationFrameID(name='shoot', direction='n', frame=None): 'tests/arrange_files/shield/spartan/n-shoot.png',
+		 AnimationFrameID(name='shoot', direction='s', frame=None): 'tests/arrange_files/shield/spartan/s-shoot.png',
+		 AnimationFrameID(name='shoot', direction='w', frame=None): 'tests/arrange_files/shield/spartan/w-shoot.png',
+		 AnimationFrameID(name='thrust', direction='s', frame=2): 'tests/arrange_files/shield/spartan/s-thrust2-thrust7.png',
+		 AnimationFrameID(name='thrust', direction='s', frame=4): 'tests/arrange_files/shield/spartan/s-thrust3-thrust4-thrust5-thrust6.png',
+		 AnimationFrameID(name='thrust', direction='s', frame=6): 'tests/arrange_files/shield/spartan/s-thrust3-thrust4-thrust5-thrust6.png',
+		 AnimationFrameID(name='thrust', direction='s', frame=7): 'tests/arrange_files/shield/spartan/s-thrust2-thrust7.png',
+		 AnimationFrameID(name=None, direction='e', frame=None): 'tests/arrange_files/shield/spartan/e.png',
+		 AnimationFrameID(name=None, direction='n', frame=None): 'tests/arrange_files/shield/spartan/n.png',
+		 AnimationFrameID(name=None, direction='w', frame=None): 'tests/arrange_files/shield/spartan/w.png',
+		 AnimationFrameID(name='thrust', direction='s', frame=3): 'tests/arrange_files/shield/spartan/s-thrust3-thrust4-thrust5-thrust6.png',
+		 AnimationFrameID(name='thrust', direction='s', frame=5): 'tests/arrange_files/shield/spartan/s-thrust3-thrust4-thrust5-thrust6.png',
+		 AnimationFrameID(name=None, direction='s', frame=None): 'tests/arrange_files/shield/spartan/s.png'
+		}
+
+		assert image_paths == expected_image_paths
+
 	def test_distribute_hair(self, tmpdir):
 		import lpctools.arrange
 
@@ -175,3 +232,14 @@ class TestDistribute():
 			)
 
 		assert filecmp.cmp(outfile,'tests/arrange_files/shield/spartan.png')
+
+	def test_distribute_cli(self, tmpdir):
+		import lpctools
+
+		lpctools.main(
+			shlex.split(
+			f"-v arrange distribute --input tests/arrange_files/shield/crusader/ --output tests/arrange_files/shield/crusader.png --offsets tests/arrange_files/shield/reference_points_male.png --mask tests/arrange_files/shield/masks_male.png"
+			)
+		)
+
+		assert True
