@@ -52,19 +52,19 @@ class TestRecolorCLI():
 		import lpctools
 
 		lpctools.main(
-			shlex.split(f"colors -v recolor --input tests/recolor_files/hair.png --mapping tests/recolor_files/palettes.json --output '{tmpdir}/%b/%p.%e'")
+			shlex.split(f"colors -v recolor --input tests/recolor_files/hair_plain.png --mapping tests/recolor_files/palettes.json --output '{tmpdir}/%b/%p.%e'")
 		)
 
-		assert_dirs_are_same(tmpdir / 'hair', 'tests/recolor_files/expected_output/hair')
+		assert_dirs_are_same(tmpdir / 'hair_plain', 'tests/recolor_files/expected_output/hair_plain')
 
 	def test_recolor_with_image_as_palette(self, tmpdir):
 		import lpctools
 
 		lpctools.main(
-			shlex.split(f"colors -v recolor --input tests/recolor_files/hair.png --mapping tests/recolor_files/map.png --palettes blonde blue --output '{tmpdir}/%b/%p.%e'")
+			shlex.split(f"colors -v recolor --input tests/recolor_files/hair_plain.png --mapping tests/recolor_files/map.png --palettes blonde blue --output '{tmpdir}/%b/%p.%e'")
 		)	
 
-		assert_dirs_are_same(tmpdir / 'hair', 'tests/recolor_files/expected_output/hair')
+		assert_dirs_are_same(tmpdir / 'hair_plain', 'tests/recolor_files/expected_output/hair_plain')
 
 		# assert set(os.listdir(tmpdir)) == {'hair'}
 		# assert set(os.listdir(tmpdir + '/hair')) ==  {'blue.png', 'blonde.png'}
@@ -78,17 +78,17 @@ class TestRecolorCLI():
 		import lpctools
 
 		lpctools.main(
-			shlex.split(f"colors -v recolor --input tests/recolor_files/hair.png tests/recolor_files/hair2.png --output '{tmpdir}/%b/%p.%e' --mapping tests/recolor_files/palettes.json")
+			shlex.split(f"colors -v recolor --input tests/recolor_files/hair_plain.png tests/recolor_files/hair_page2.png --output '{tmpdir}/%b/%p.%e' --mapping tests/recolor_files/palettes.json")
 		)	
 
-		assert_dirs_are_same(tmpdir / 'hair', 'tests/recolor_files/expected_output/hair')
-		assert_dirs_are_same(tmpdir / 'hair2', 'tests/recolor_files/expected_output/hair2')
+		assert_dirs_are_same(tmpdir / 'hair_plain', 'tests/recolor_files/expected_output/hair_plain')
+		assert_dirs_are_same(tmpdir / 'hair_page2', 'tests/recolor_files/expected_output/hair_page2')
 
-		# assert set(os.listdir(tmpdir)) == {'hair', 'hair2'}
+		# assert set(os.listdir(tmpdir)) == {'hair', 'hair_page2'}
 		# assert set(os.listdir(f"{tmpdir}/hair")) ==  {'blue.png', 'blonde.png'}
-		# assert set(os.listdir(f"{tmpdir}/hair2")) ==  {'blue.png', 'blonde.png'}
+		# assert set(os.listdir(f"{tmpdir}/hair_page2")) ==  {'blue.png', 'blonde.png'}
 
 		# assert filecmp.cmp(f"{tmpdir}/hair/blonde.png", 'tests/recolor_files/expected_output/hair/blonde.png')
 		# assert filecmp.cmp(f"{tmpdir}/hair/blue.png", 'tests/recolor_files/expected_output/hair/blue.png')
-		# assert filecmp.cmp(f"{tmpdir}/hair2/blonde.png", 'tests/recolor_files/expected_output/hair2/blonde.png')
-		# assert filecmp.cmp(f"{tmpdir}/hair2/blue.png", 'tests/recolor_files/expected_output/hair2/blue.png')
+		# assert filecmp.cmp(f"{tmpdir}/hair_page2/blonde.png", 'tests/recolor_files/expected_output/hair_page2/blonde.png')
+		# assert filecmp.cmp(f"{tmpdir}/hair_page2/blue.png", 'tests/recolor_files/expected_output/hair_page2/blue.png')
