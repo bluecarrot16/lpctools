@@ -217,6 +217,10 @@ animations = {
 	'push': Animation.make_directions('push',9),
 }
 
+animation_synonyms = {
+	'spellcast':'cast'
+}
+
 # class AnimationLayer():
 
 # 	def __init__(self, template, images):
@@ -238,6 +242,9 @@ class AnimationFrameID(collections.namedtuple('_AnimationFrameID',['name','direc
 	__slots__ = ()
 
 	def __new__(cls, name=None,direction=None,frame=None):
+		if name in animation_synonyms: 
+			name = animation_synonyms[name]
+
 		if frame is not None: 
 			if isinstance(frame, str) and frame in 'ABCDEF':
 				frame = int(frame, 16)
@@ -253,6 +260,7 @@ class AnimationFrameID(collections.namedtuple('_AnimationFrameID',['name','direc
 
 	@staticmethod
 	def from_dict(d):
+
 		return AnimationFrameID(
 			d['name']      if 'name'      in d else d['n'] if 'n' in d else None,
 			d['direction'] if 'direction' in d else d['d'] if 'd' in d else None,
@@ -294,7 +302,7 @@ class AnimationLayout():
 		for (name, direction, frame) in afis:
 			animations[name][direction] = max(animations[name][direction], frame)
 
-		print(animations)
+		# print(animations)
 		# return [Animation(name, direction, nframes) for nframes, direction in directions.items() for (name, directions) in animations.items()]
 		anims_list = []
 		for (name, directions) in animations.items():
@@ -447,6 +455,45 @@ layouts = {
 			[('shoot'  , 'e' , range(13)), ('jump'  , 'e' , range(5))],
 			[('hurt'   , 's' , range(6))]
 		]),
+		'basxto': AnimationLayout.from_rows([
+			('hurt'   , 's' , range(6))  ,
+			('walk'   , 'n' , range(9))  ,
+			('walk'   , 'w' , range(9))  ,
+			('walk'   , 's' , range(9))  ,
+			('walk'   , 'e' , range(9))  ,
+			('slash'  , 'n' , range(6))  ,
+			('slash'  , 'w' , range(6))  ,
+			('slash'  , 's' , range(6))  ,
+			('slash'  , 'e' , range(6))  ,
+			('cast'   , 'n' , range(7))  ,
+			('cast'   , 'w' , range(7))  ,
+			('cast'   , 's' , range(7))  ,
+			('cast'   , 'e' , range(7))  ,
+			('thrust' , 'n' , range(8))  ,
+			('thrust' , 'w' , range(8))  ,
+			('thrust' , 's' , range(8))  ,
+			('thrust' , 'e' , range(8))  ,
+			('shoot'  , 'n' , range(13)) ,
+			('shoot'  , 'w' , range(13)) ,
+			('shoot'  , 's' , range(13)) ,
+			('shoot'  , 'e' , range(13)) ,
+			('gun'  , 'n' , range(9)) ,
+			('gun'  , 'w' , range(9)) ,
+			('gun'  , 's' , range(9)) ,
+			('gun'  , 'e' , range(9)) ,
+			('jump'  , 'n' , range(13)) ,
+			('jump'  , 'w' , range(13)) ,
+			('jump'  , 's' , range(13)) ,
+			('jump'  , 'e' , range(13)) ,
+			('grab'  , 'n' , range(3)),
+			('grab'  , 'w' , range(3)),
+			('grab'  , 's' , range(3)),
+			('grab'  , 'e' , range(3)),
+			('run' , 'n' , range(8)), 
+			('run' , 'w' , range(8)), 
+			('run' , 's' , range(8)), 
+			('run' , 'e' , range(8))
+		]),
 	'cast': AnimationLayout.from_animation('cast',7),
 	'thrust': AnimationLayout.from_animation('thrust',8),
 	'walk': AnimationLayout.from_animation('walk',9),
@@ -457,6 +504,8 @@ layouts = {
 	'push': AnimationLayout.from_animation('push',9),
 	'carry': AnimationLayout.from_animation('carry',9),
 	'jump': AnimationLayout.from_animation('jump',5),
+	'run': AnimationLayout.from_animation('jump',8),
+	'gun': AnimationLayout.from_animation('jump',9)
 }
 
 
@@ -701,6 +750,7 @@ def distribute(image_paths, offsets_image, masks_image, layout, output=None,
 	if verbose: print(f"output: {output}")	
 
 	animations = layout.get_animations()
+	if verbose: print(f"detected animations: {animations}")
 
 
 	offsets_image = Image.open(offsets_image)
