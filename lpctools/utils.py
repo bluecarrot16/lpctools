@@ -1,4 +1,5 @@
 import os
+import os.path
 import re
 import collections
 
@@ -76,11 +77,15 @@ def unique_rows(ar):
 	return ar_out
 
 
-def mkdirp(filename):
-	os.makedirs(filename, exist_ok=True)
+def mkdirp(*paths):
+	fn = os.path.join(*paths)
+	os.makedirs(fn, exist_ok=True)
+	return fn
 
-def mkdirpf(filename):
-	os.makedirs(os.path.dirname(filename), exist_ok=True)
+def mkdirpf(*paths):
+	fn = os.path.join(*paths)
+	os.makedirs(os.path.dirname(fn), exist_ok=True)
+	return fn
 
 def format_placeholders(template, placeholders, special='%'):
 	"""replaces a set of named placeholders in a template string"""
@@ -139,3 +144,8 @@ def composite_images(images, inplace=True):
 		for img in layers:
 			base.alpha_composite(img)
 	return base
+
+def listify(s):
+	if not isinstance(s,collections.abc.Iterable) or isinstance(s, str):
+		return [s]
+	else: return s
