@@ -59,39 +59,143 @@ def main(argv=None):
 
 		# RECOLORING SUBCOMMANDS
 		# ----------------------
+
+
+		mapping_help = dedent("""\
+			A "color mapping" is a mapping between one "source" palette and one or more
+			"target" palettes. Each color in the "source" palette should correspond to one 
+			color in each "target" palette. 
+
+			Working with mappings may be more convenient than palettes when you have one set
+			of images that needs to be recolored into many palettes.  
+
+			Mappings can be written as JSON files or as RGBA PNG images:
+			- As an image, each palette (including the source palette) is one row of pixels;
+			  the source palette is the first row of pixels
+			- As a JSON file, each palette is under a separate key, as an array of RGB(A) hex 
+			  colors. The source palette is in a key called "source".
+
+			  Example:
+
+			  { "source": ["#000000", "#cccccc", "#ffffff"],
+			    "reds":   ["#000000", "#cc0000", "#ff0000"],
+			    "blues":  ["#000000", "#0000cc", "#0000ff"] }
+
+			  This mapping encodes three palettes: "source", "reds", and "blues". For an image
+			  recolored from "source" to "blues", '#ffffff' (white) would become '#0000ff' 
+			  (blue), '#cccccc' (gray) would become '#0000cc' (dark blue), and '#000000' 
+			  would be unchanged.
+			""")
+		palette_help = dedent("""\
+			Supported palette formats: 
+			- PNG image (unique colors will be identified from left-to-right, top-to-bottom, 
+			- GIMP palette format (.gpl)
+			- JSON: should contain a single array of RGB(A) hexadecimal color strings
+			""")
+
+		pattern_help = dedent("""\
+			By default, the engine will create one folder for each INPUT image, and within
+			that folder, will write one image named PALETTE.png for each target palette:
+
+			Example:
+			$ %(prog)s recolor --input IMAGE1.png IMAGE2.png --from SOURCE --to PALETTE.png PALETTE2.png
+				IMAGE1/
+				  PALETTE1.png
+				  PALETTE2.png
+				  ...
+				IMAGE2/
+				  PALETTE1.png
+				  ...
+
+			However, you can change this arrangement by specifying an --output PATTERN.
+			Use these placeholder symbols:
+
+			- %%i : path to the input image file, without file extension
+			- %%p : name of the palette
+			- %%e : file extension of the input image
+			- %%I : full path to the image, including file extension (='%%i.%%e')
+			- %%b : basename of the input image, without extension
+			- %%B : basename of the input image, including extension (='%%b.%%e')
+			- %%%% : literal %% sign
+
+			Example: write input images like INPUT-PALETTE.png:
+			--output %%i-%%p.%%e
+			""")
+
+
 		# RECOLOR subcommand
-		parser_recolor = subparsers.add_parser('recolor', help='Recolor an image')	
+		parser_recolor = subparsers.add_parser('recolor', help='Recolor an image',
+			formatter_class=argparse.RawTextHelpFormatter,
+
+			epilog=dedent(f"""\
+				Recolor an image to one or more palettes. 
+
+				Either specify individual palettes with --from and --to , or give a
+				list of multiple palettes with --mapping .
+
+				PALETTES
+				{palette_help}
+
+
+				MAPPINGS
+				{mapping_help}
+
+
+				FILE NAMING
+				{pattern_help}
+				""")
+			)
 		parser_recolor.add_argument('--input', dest='input', action='extend', nargs='+',
-							help='input filename(s)')
+							help='input filename(s)', required=True)
 
 		parser_recolor.add_argument('--output', dest='output', action='store', nargs='+', #action=ExtendActionOverwriteDefault, nargs='+',
 							default=['%i/%p.%e'],
-							help='output filename pattern')
+							help='How should output files be named? (default: %(default)s)')
 		# parser_recolor.add_argument('--output-dir', dest='output_dir')
-		parser_recolor.add_argument('--from', dest='source')
-		parser_recolor.add_argument('--to',  dest='target', action='extend', nargs='+')
+		parser_recolor.add_argument('--from', dest='source', help="source palette")
+		parser_recolor.add_argument('--to',  dest='target', action='extend', nargs='+', help="one or more destination palette(s)")
 
-		parser_recolor.add_argument('--mapping', dest='mapping')
-		parser_recolor.add_argument('--palettes', dest='palettes', action='extend', nargs='+')
-		parser_recolor.add_argument('--output-mapping-image', dest='mapping_output')
+		parser_recolor.add_argument('--mapping', dest='mapping', help="color mapping; create mapping from palettes with create-mapping")
+		parser_recolor.add_argument('--palette-names', dest='palettes', action='extend', nargs='+', 
+			help=dedent("""\
+			specify or override the names for palettes given in MAPPING. If 
+			"MAPPING is an image, you must specify palette names here, or 
+			recolored images will be named 1.png, 2.png, etc."""))
+		parser_recolor.add_argument('--output-mapping-image', dest='mapping_output', help="Write an image representation of the palette mapping to this path, if given")
 
 		# convertpalette subcommand
-		parser_palette = subparsers.add_parser('convert-palette', help='Convert a color palette between formats')	
-		parser_palette.add_argument('--input')
-		parser_palette.add_argument('--output')
+		parser_palette = subparsers.add_parser('convert-palette', help='Convert a color palette between formats',
+			description='Convert a color palette between formats',
+			formatter_class=argparse.RawTextHelpFormatter,
+			epilog=dedent(f"""\
+				{palette_help}
+				""")
+			)
+		parser_palette.add_argument('--input', help='input color palette; format will be inferred from file extension')
+		parser_palette.add_argument('--output', help='output color palette; format will be inferred from file extension')
 
 		# convertmapping subcommand
-		parser_convertpalette = subparsers.add_parser('convert-mapping', help='Convert a color mapping between formats')	
-		parser_convertpalette.add_argument('--input')
-		parser_convertpalette.add_argument('--output')
+		parser_convertpalette = subparsers.add_parser('convert-mapping', 
+			help='Convert a color mapping between formats',
+			description='Convert a color mapping (created with `lpctools colors create-mapping`) between formats.')	
+		parser_convertpalette.add_argument('--input', help='input color mapping; format will be inferred from file extension')
+		parser_convertpalette.add_argument('--output', help='output color mapping; format will be inferred from file extension')
 
 		# createmapping subcommand
-		parser_mapping = subparsers.add_parser('create-mapping', help='Construct a color mapping from palette(s)')	
+		parser_mapping = subparsers.add_parser('create-mapping', help='Construct a color mapping from palette(s)',
+			formatter_class=argparse.RawTextHelpFormatter,
+			description=dedent(f"""\
+				Create a color mapping from two or more palettes.
+
+				{mapping_help}
+				""")
+			)	
 		# parser_mapping.add_argument('--source')
 		# parser_mapping.add_argument('--target', action='extend', nargs='+')
-		parser_mapping.add_argument('--from', dest='source')
-		parser_mapping.add_argument('--to',  dest='target',  action='extend', nargs='+')
-		parser_mapping.add_argument('--output')
+		parser_mapping.add_argument('--from', dest='source', help="path to source palette")
+		parser_mapping.add_argument('--to',  dest='target',  action='extend', nargs='+', 
+			help="path(s) to target palette(s); target palettes can be named by writing NAME=PATH")
+		parser_mapping.add_argument('--output', help='Filename to save the output palette; format will be inferred from extension')
 
 		args = parser.parse_args(argv, ns)
 

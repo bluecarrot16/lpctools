@@ -545,6 +545,8 @@ def main_recolor(args):
 		if args.verbose: 
 			if args.palettes is not None:
 				print(f"Reading palette mapping: {args.mapping}")
+			else:
+				print(f"Reading palette mapping: {args.mapping}; renaming the palettes {args.palettes}")
 		mapping = load_palette_mapping(args.mapping, names=args.palettes)
 	elif args.source is not None and args.target is not None:
 		mapping = make_mapping(args.source, args.target, verbose=args.verbose)

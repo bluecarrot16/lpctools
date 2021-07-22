@@ -61,7 +61,7 @@ class TestRecolorCLI():
 		import lpctools
 
 		lpctools.main(
-			shlex.split(f"colors -v recolor --input tests/recolor_files/hair_plain.png --mapping tests/recolor_files/map.png --palettes blonde blue --output '{tmpdir}/%b/%p.%e'")
+			shlex.split(f"colors -v recolor --input tests/recolor_files/hair_plain.png --mapping tests/recolor_files/map.png --palette-names blonde blue --output '{tmpdir}/%b/%p.%e'")
 		)	
 
 		assert_dirs_are_same(tmpdir / 'hair_plain', 'tests/recolor_files/expected_output/hair_plain')
