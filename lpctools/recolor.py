@@ -328,7 +328,7 @@ def save_palette_mapping(mapping, path, **kwargs):
 		raise Exception(f'Do not know how to save a mapping to a {ext} file. Possible extensions: {mapping_savers.keys()}')
 
 
-def load_palette_mapping_json(data):
+def load_palette_mapping_json(data, names=None):
 	if isinstance(data, str):
 		with open(data) as f:
 			data = json.load(f)
@@ -499,26 +499,36 @@ def make_mapping(source_path, target_paths, names=None, verbose=False):
 	for name, pal_str in zip(names, target_paths):
 		if '=' in pal_str:
 			name, path = pal_str.split('=')
+		else: 
+			path = pal_str
 		
 		if name != '':
 			if verbose: print(f"- loading palette '{name}' from {path}")
 			dest_pals.append(load_palette(path, name=name))
 		else: 
 			if verbose: print(f"- loading untitled palette from {path}")
-			dest_pals.append(load_palette(pal_str))
+			dest_pals.append(load_palette(path))
 
 	colormap = ImagePaletteMapping(source_pal, dest_pals)
 	return colormap
 
 
 
+
+def convert_palette(input, output):
+	in_pal = load_palette(input)
+	save_palette(in_pal, output)
+
 def main_convertpalette(args):
-	in_pal = load_palette(args.input)
-	save_palette(in_pal, args.output)
+	return convert_palette(args.input, args.output)
+
+
+def convert_mapping(input, output):
+	in_map = load_palette_mapping(input)
+	save_palette_mapping(in_map, output)
 
 def main_convertmapping(args):
-	in_map = load_palette_mapping(args.input)
-	save_palette_mapping(in_map, args.output)
+	return convert_mapping(args.input, args.output)
 
 def main_colormap(args):
 	colormap = make_mapping(args.source, args.target, verbose=args.verbose)
@@ -537,7 +547,7 @@ def main_recolor(args):
 				print(f"Reading palette mapping: {args.mapping}")
 		mapping = load_palette_mapping(args.mapping, names=args.palettes)
 	elif args.source is not None and args.target is not None:
-		colormap = make_mapping(args.source, args.target, verbose=args.verbose)
+		mapping = make_mapping(args.source, args.target, verbose=args.verbose)
 	else: 
 		raise Exception('Must specify the color mapping, using either --mapping or --from and --to.')
 
