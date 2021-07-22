@@ -455,6 +455,8 @@ layouts = {
 	'hurt': AnimationLayout.from_animation('hurt',6,['s']),
 	'grab': AnimationLayout.from_animation('grab',3),
 	'push': AnimationLayout.from_animation('push',9),
+	'carry': AnimationLayout.from_animation('carry',9),
+	'jump': AnimationLayout.from_animation('jump',5),
 }
 
 
@@ -587,9 +589,9 @@ def unpack_animations(image, layout, pattern=IMAGE_FRAME_PATTERN, output_dir='.'
 	return images
 
 def main_unpack(args):
-	return unpack_animations(args.input, args.layout, args.pattern, args.output_dir)
+	return unpack_animations(args.input, args.layout, args.pattern, args.output_dir, verbose=args.verbose)
 
-def repack_animations(images, from_layouts, to_layouts, output_dir='.'):
+def repack_animations(images, from_layouts, to_layouts, output_dir='.', verbose=False):
 	images = listify(images)
 
 	from_layouts = listify(from_layouts)
@@ -597,19 +599,30 @@ def repack_animations(images, from_layouts, to_layouts, output_dir='.'):
 	if len(from_layouts) != len(images):
 		raise Exception("Must specify same number of source layouts as images. Source layouts: {from_layouts}; images: {images}")
 
+	if verbose: 
+		print("Input images: {images}")
+		print("Reading from layouts: {from_layouts}")
+
 	unpacked_images = {}
 	for image_path, from_layout in zip(images, from_layouts):
+		if verbose: print(f"{image_path} -> {from_layout}")
 		img = Image.open(image_path)
 		from_layout = load_layout(from_layout)
 		unpacked_images.update( from_layout.unpack_images(img) )
+		if verbose: print(f"= {len(unpacked_images)} images total")
 
+	if verbose: print("Writing to layouts: {to_layouts}")
 	for layout_name in to_layouts:
 		layout = load_layout(layout_name)
 		new_img = layout.pack_images(unpacked_images)
-		new_img.save(os.path.join(output_dir, layout_name) + '.png')
+		outfile = mkdirpf(output_dir, layout_name + '.png')
+		if verbose: print(f"- Saved {layout_name} -> {outfile}")
+		new_img.save(outfile)
 
 def main_repack(args):
-	pass
+	return repack_animations(args.input, args.from_layouts, args.to_layouts, args.output_dir, verbose=args.verbose)
+
+
 
 def main_distribute(args):
 	distribute(args.input, args.offsets, args.masks, args.layout, args.output, 

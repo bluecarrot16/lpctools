@@ -118,7 +118,6 @@ def main(argv=None):
 
 		parser.add_argument('--verbose', '-v', action='count', dest='verbose', default=0, help='Print diagnostic messages. Repeat for higher verbosity.')
 
-
 		pattern_help = dedent("""\
 			Patterns are specified using these characters: 
 			- %n = name of the animation (e.g. cast, thrust, shoot)'
@@ -181,9 +180,12 @@ def main(argv=None):
 			{layouts_help}
 			""")
 			)
-		parser_repack.add_argument('--from', default=['universal'], help='Layout(s) of the original spritesheet images')
-		parser_repack.add_argument('--to', default=['cast','thrust','walk','slash','shoot','hurt'], nargs='+', help='New layout(s) to create')
 
+		parser_repack.add_argument('--input',required=True, help='Packed image')
+		parser_repack.add_argument('--from', dest='from_layouts', default=['universal'], help='Layout(s) of the original spritesheet images')
+		parser_repack.add_argument('--to', dest='to_layouts', default=['cast','thrust','walk','slash','shoot','hurt'], nargs='+', help='New layout(s) to create')
+		parser_repack.add_argument('--output-dir',dest='output_dir', default='.', 
+			help='Directory where the repacked spritesheet(s) should be placed (default: %(default)s)')
 
 		layers_help = '\n'.join(wrap_fill(f"- {layer_name} : {layer['help']}", width=79) for layer_name, layer in distribute_layers.items() )
 
