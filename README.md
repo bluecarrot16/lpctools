@@ -82,13 +82,13 @@ run `lpctools --help`, `lpctools COMMAND --help`, `lpctools COMMAND SUBCOMMAND -
 - Recolor two hairstyles to two different palettes:
 
 	```bash
-	lpctools colors -v recolor --input tests/recolor_files/hair.png tests/recolor_files/hair2.png --mapping tests/recolor_files/palettes.json
+	lpctools colors -v recolor --input tests/recolor_files/hair.png tests/recolor_files/hair_page2.png --mapping tests/recolor_files/palettes.json
 	```
 
 - Recolor a hairstyle to two different palettes, using a palette defined by an image:
 
 	```bash
-	lpctools colors -v recolor --input tests/recolor_files/hair.png --mapping tests/recolor_files/map.png
+	lpctools colors -v recolor --input tests/recolor_files/hair.png --mapping tests/recolor_files/map.png --palette-names blonde blue
 	```
 
 - Recolor an image from one palette to another, with one palette defined by an image and another in a GIMP .gpl file:
@@ -97,9 +97,37 @@ run `lpctools --help`, `lpctools COMMAND --help`, `lpctools COMMAND SUBCOMMAND -
 	lpctools colors -v recolor --input tests/recolor_files/human_head.png --from tests/recolor_files/ivory.png --to tests/recolor_files/ogre.gpl
 	```
 
+- Recolor all male "hair" images from the Universal LPC Spritesheet:
+
+	```bash
+	$ git clone --shallow https://github.com/sanderfrenken/Universal-LPC-Spritesheet-Character-Generator
+	$ time (lpctools colors recolor \
+		--input Universal-LPC-Spritesheet-Character-Generator/spritesheets/hair/male/*.png \
+		--mapping tests/recolor_files/all-palettes.json)
+
+	real	1m18.583s
+	user	1m6.450s
+	sys	0m3.001s
+	```
+
 ## Acknowledgements
 
-- Art included for demonstration purposes only, find originals at <https://opengameart.org/content/lpc-collection>. Please do not distribute the included art without credit to the original artists
-- Inspired by:
-	- joewhite's Universal Hair generator: https://github.com/joewhite/Universal-LPC-spritesheet/tree/universal-hair , GNU GPL 3.0 and CC-BY-SA 3.0	
-	- basxto's modular characters https://github.com/basxto/lpc-modular-characters
+- joewhite's Universal Hair generator: https://github.com/joewhite/Universal-LPC-spritesheet/tree/universal-hair , GNU GPL 3.0 and CC-BY-SA 3.0	
+	- Example MASK and OFFSET images borrowed and/or adapted from here; example palettes in `tests/recolor_files/all-palettes.json`
+	- `distribute` tool heavily inspired by `rake`-based hair build system
+- "LPC modular characters" by basxto https://github.com/basxto/lpc-modular-characters
+	+ Sample palettes (ivory.gpl, ogre.gpl)
+	+ Inspiration for `recolor` and `distribute` tool
+- Art included for demonstration purposes only, find originals at <https://opengameart.org/content/lpc-collection>. Please do not distribute the included art without credit to the original artists.
+
+|         File         |                    Authors                     |        License(s)       |                                                                                                                           URL(s)                                                                                                                           |
+|----------------------|------------------------------------------------|-------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| hair_page2.png       | Johannes Sjölund (wulax)                       | CC-BY-SA 3.0, GPL 3.0   | https://opengameart.org/content/lpc-medieval-fantasy-character-sprites                                                                                                                                                                                     |
+| hair_plain.png       | Manuel Riecke, Joe White                       | CC-BY-SA 3.0, GPL 3.0   | https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles		https://opengameart.org/content/ponytail-and-plain-hairstyles                                                                                                       |
+| human_head.png       | basxto                                         | CC-BY-SA 3.0, GPL 3.0   | https://github.com/basxto/lpc-modular-characters                                                                                                                                                                                                           |
+| packed-universal.png | RedShrike, wulax                               | CC-BY-SA 3.0, GPL 3.0   | https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles	https://opengameart.org/content/lpc-medieval-fantasy-character-sprites                                                                                               |
+| packed-evert.png     | RedShrike, wulax, daneeklu, BenCreating, Evert | -                       | -                                                                                                                                                                                                                                                          |
+| grab.png             | Redshrike, daneeklu, BenCreating               | CC-BY-SA 3.0, GPL 3.0   | https://opengameart.org/sites/default/files/forum-attachments/cleaned-grab.png https://opengameart.org/content/lpc-farming-tilesets-magic-animations-and-ui-elements https://opengameart.org/content/liberated-pixel-cup-lpc-base-assets-sprites-map-tiles |
+| walk_push.png        | Redshrike, daneeklu, BenCreating, Evert        |                         | https://opengameart.org/sites/default/files/forum-attachments/walk_push.png                                                                                                                                                                                |
+| crusader.png         | bluecarrot16                                   | OGA-BY 3.0+, CC-BY 3.0+ | https://opengameart.org/content/lpc-shields                                                                                                                                                                                                                |
+| spartan.png          | bluecarrot16                                   | OGA-BY 3.0+, CC-BY 3.0+ | https://opengameart.org/content/lpc-shields                                                                                                                                                                                                                |
