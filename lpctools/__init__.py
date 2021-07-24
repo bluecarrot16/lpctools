@@ -1,16 +1,8 @@
 import sys
-from .utils import *
 import textwrap
 
-def wrap_fill(text, width=79, **kwargs):
-	return textwrap.fill(text, width=width, **kwargs)
+from .utils import *
 
-_leading_whitespace_re = re.compile('(^[ \t]*)(?:[^ \t\n])')
-def dedent(s):
-	lines = s.splitlines()
-	indents = _leading_whitespace_re.findall(lines[0])
-	indent = indents[0]
-	return "\n".join(line.removeprefix(indent) for line in lines)
 
 # # https://mike.depalatis.net/blog/simplifying-argparse.html
 # def subcommand(args=[], parent=subparsers):
@@ -223,24 +215,37 @@ def main(argv=None):
 		parser_mapping.add_argument('--from', dest='source', help="path to source palette")
 		parser_mapping.add_argument('--to',  dest='target',  action='extend', nargs='+', 
 			help="path(s) to target palette(s); target palettes can be named by writing NAME=PATH")
-		parser_mapping.add_argument('--output', help='Filename to save the output palette; format will be inferred from extension')
+		parser_mapping.add_argument('--output', help='Filename to save the output mapping; format will be inferred from extension')
+
+
+		# parser_concat_mappings = subparsers.add_parser('concat-mappings', help='Concatenates one or more mappings',
+		# 	formatter_class=argparse.RawTextHelpFormatter
+		# 	)	
+		# parser_concat_mappings.add_argument('--mapping', dest='mapping', help="path to source mapping(s)")
+		# parser_concat_mappings.add_argument('--from', dest='source', help="path to new source palette")
+		# parser_concat_mappings.add_argument('--to',  dest='target',  action='extend', nargs='+', 
+		# 	help="path(s) to additional target palette(s); target palettes can be named by writing NAME=PATH")
+		# parser_concat_mappings.add_argument('--output', help='Filename to save the output mapping; format will be inferred from extension')
+		# parser_concat_mappings.add_argument('--sort', help='sorts the mapping by alpha, then luminosity of the source palette', action='store_const', const='auto')
+		# parser_concat_mappings.add_argument('--filter', action='extend', nargs='+', help='filter the mapping to only include the listed palettes')
+		# parser_concat_mappings.add_argument('--drop', action='extend', nargs='+', help='filter the mapping to NOT include the listed palettes')
+
 
 		args = parser.parse_args(argv, ns)
 
-		from .recolor import main_recolor, main_convertpalette, main_convertmapping, main_colormap
+		from .recolor import main_recolor, main_convertpalette, main_convertmapping, main_create_mapping, main_concat_mappings
 		sub_commands = {
 			'recolor': main_recolor,
 			'convert-palette': main_convertpalette,
 			'convert-mapping': main_convertmapping,
-			'create-mapping': main_colormap
+			'create-mapping': main_create_mapping
+			# ,'concat-mappings': main_concat_mappings
 		}
 
 		sub_commands[args.command](args)
 
 
 	def main_arrange(argv, ns=None):
-		# ARRANGE SUBCOMMANDS
-		# -------------------
 		
 		from .arrange import layouts, distribute_layers, IMAGE_FRAME_PATTERN, main_pack, main_unpack, main_repack, main_distribute
 
@@ -259,6 +264,7 @@ def main(argv=None):
 
 		layouts_help = ("Available layouts:\n" +
 			"\n".join(f"- {layout_name}" for layout_name in layouts))
+
 
 
 		parser_pack = subparsers.add_parser('pack', 
@@ -313,8 +319,8 @@ def main(argv=None):
 			""")
 			)
 
-		parser_repack.add_argument('--input',required=True, help='Packed image')
-		parser_repack.add_argument('--from', dest='from_layouts', default=['universal'], help='Layout(s) of the original spritesheet images')
+		parser_repack.add_argument('--input',required=True, help='Packed image', action='extend', nargs='+')
+		parser_repack.add_argument('--from', dest='from_layouts', default=['universal'], help='Layout(s) of the original spritesheet images', nargs='+')
 		parser_repack.add_argument('--to', dest='to_layouts', default=['cast','thrust','walk','slash','shoot','hurt'], nargs='+', help='New layout(s) to create')
 		parser_repack.add_argument('--output-dir',dest='output_dir', default='.', 
 			help='Directory where the repacked spritesheet(s) should be placed (default: %(default)s)')
@@ -415,7 +421,7 @@ def main(argv=None):
 			)
 		parser_distribute.add_argument('--input', required=True, action='append', nargs='+', 
 			help='Input image(s) or directories')
-		parser_distribute.add_argument('--output', required=True, nargs='+',
+		parser_distribute.add_argument('--output', required=True, action='extend', nargs='+',
 			help='Path where the complete spritesheet(s) should be placed')
 		parser_distribute.add_argument('--layout', default='universal')
 		parser_distribute.add_argument('--offsets', '--offset', required=True, 
@@ -448,6 +454,7 @@ def main(argv=None):
 		# ,exit_on_error=False
 		)
 	parser.add_argument('-h','--help', action='store_const', const=True)
+	parser.add_argument('--pdb', action='store_const',const=True)
 	parser.add_argument('command', choices = list(commands.keys()) + ['help'], nargs='?', default='help', help='Subcommand to execute')
 
 	# try:
@@ -456,6 +463,9 @@ def main(argv=None):
 		# parser.print_help()
 
 	ns, argv_rest = parser.parse_known_args(argv)
+
+	if ns.pdb:
+		import pdb; pdb.set_trace()
 
 	if ns.command == 'help':
 		parser.print_help()

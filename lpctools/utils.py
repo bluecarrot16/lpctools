@@ -2,6 +2,23 @@ import os
 import os.path
 import re
 import collections
+import itertools
+import textwrap
+
+def wrap_fill(text, width=79, **kwargs):
+	return textwrap.fill(text, width=width, **kwargs)
+
+_leading_whitespace_re = re.compile('(^[ \t]*)(?:[^ \t\n])')
+def dedent(s):
+	lines = s.splitlines()
+	indents = _leading_whitespace_re.findall(lines[0])
+	indent = indents[0]
+	return "\n".join(line.removeprefix(indent) for line in lines)
+
+# https://stackoverflow.com/questions/3844801/check-if-all-elements-in-a-list-are-identical
+def all_equal(iterable):
+    g = itertools.groupby(iterable)
+    return next(g, True) and not next(g, False)
 
 def without_keys(d, keys): return {x: d[x] for x in d if x not in keys}
 
