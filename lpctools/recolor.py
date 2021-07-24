@@ -64,6 +64,12 @@ class Color(RGBATuple):
 	def to_gpl(self):
 		return f'{self.r: >3} {self.g: >3} {self.b: >3} Untitled'
 
+	@staticmethod
+	def squish_if_transparent(t):
+		if len(t) == 4 and t[3] == 0:
+			return (255,255,255,0)
+		return tuple(t)
+
 class ImagePalette():
 	def __init__(self, colors=[], name=''):
 		# self._colors = [getrgba(c) for c in colors]
@@ -86,16 +92,73 @@ class ImagePalette():
 	def __getitem__(self, i):
 		return self._colors[i]
 
+	def __repr__(self):
+		r = 'ImagePalette([' + ",".join( f"'{c.to_hex()}'" for c in self._colors ) + ']'
+		if self.name != '':
+			r += f",name={self.name}"
+		r += ")"
+		return r
+
+
+
 	def to_hex(self):
 		return [rgb2hex(*x) for x in self._colors]
 
 	def to_hsv(self):
-		return [colorsys.rgb_to_hsv(*x) for x in self._colors]
+		return [x.to_hsv() for x in self._colors]
+
+
+	def reorder(self, ordering):
+		return ImagePalette(np.array(self._colors)[ordering], name=self.name)
+
+	def argsort(self, param='auto'):
+		"""
+		param: channel or list of channels to use for sorting; if list is given, 
+		channels will be sorted lexicographically. 'auto' = ['alpha','value','saturation','hue']
+		"""
+
+
+		if param == 'auto':
+			channel_order = ['alpha','value','saturation','hue']
+		else: channel_order = listify(param)
+
+		if not all(x in ['hue','saturation','value','alpha','auto'] for x in channel_order):
+			raise Exception(f"Unknown sort key(s) {channel_order}. ")
+
+		# k channels x N colors
+		hsvs = np.array(self.to_hsv(), dtype=int).T
+		channels = ['hue','saturation','value','alpha']
+
+		# re-arrange channels in desired order
+		# confusingly, np.lexsort sorts by the last row, then second-to-last, 
+		# and so on, so we need to provide the channels in reverse order
+		data = hsvs[ [channels.index(channel) for channel in reversed(channel_order)], : ]
+
+		sort_order = np.lexsort(data)
+		return sort_order
+
+		# hsvs = self.to_hsv()
+		# key = {
+		# 	'hue':lambda h,s,v,a: h,
+		# 	'saturation':lambda h,s,v,a: s,
+		# 	'value':lambda h,s,v,a: v
+		# }[param]
+
+		# keyed = np.fromiter((key(*c) for c in self), count=len(self), dtype=int)
+		# sort_order = np.argsort(keyed)
+		# return sort_order
+		# else:
+			# raise Exception(f"Unknown sort key {param}")
+			# return ImagePalette([colorsys.hsv_to_rgb(*x) for x in hsvs_sorted])	
+
+	def sort(self, param='value'):
+		return self.reorder(self.argsort(param))
 
 	def sort_hue(self):
-		hsvs = self.to_hsv()
-		hsvs_sorted = sorted(hsvs, key=lambda h,s,v: h)
-		return ImagePalette([colorsys.hsv_to_rgb(*x) for x in hsvs_sorted])
+		# hsvs = self.to_hsv()
+		# hsvs_sorted = sorted(hsvs, key=lambda h,s,v: h)
+		# return ImagePalette([colorsys.hsv_to_rgb(*x) for x in hsvs_sorted])
+		return self.sort(param='hue')
 
 	def to_png(self, path=None):
 		# +1 for the source palette
@@ -133,10 +196,10 @@ class ImagePalette():
 
 def load_palette_json(path, name=''):
 	with open(path, 'r') as f:
-		data = json.parse(f)
+		data = json.load(f)
 	return ImagePalette(data, name=name)
 
-def load_palette_png(path, name=''):
+def load_palette_png(path, name='', squish_transparent=True):
 	img = Image.open(path)
 	bn, _ = os.path.splitext(os.path.basename(path))
 
@@ -149,11 +212,17 @@ def load_palette_png(path, name=''):
 		
 		import pandas as pd
 
+		# n_pixels x 4
 		img_pixels = np.array(img).reshape((-1, 4))
 		# colors = unique_rows(img_pixels)
 		
+		# treat all transparent pixels as equivalent by mapping all to rgba(255,255,255,0)
+		if squish_transparent:
+			img_pixels[img_pixels[:,3] == 0] = [255,255,255,0]
+
 		# probably slow but seems like the only sane way to preserve ordering
-		colors = pd.unique([tuple(a) for a in img_pixels])
+		all_colors = [tuple(a) for a in img_pixels]
+		colors = pd.unique(all_colors)
 
 	return ImagePalette(colors, name=(name or bn))
 
@@ -210,6 +279,7 @@ def save_palette(pal, path, **kwargs):
 class ImagePaletteMapping(dict):
 	def __init__(self, source_palette, dest_palettes):
 		source_palette = ImagePalette(source_palette)
+		self.source_palette = source_palette
 
 		if isinstance(dest_palettes, dict):
 			# self.names = dest_palettes.keys()
@@ -219,17 +289,57 @@ class ImagePaletteMapping(dict):
 			# self.names = range(len(dest_palettes))
 			dest_palettes = [ImagePalette(d) for d in dest_palettes]
 
+		self.dest_palettes = dest_palettes
+
 		self.names = [pal.name or i for i,pal in enumerate(dest_palettes)]
 		self.n_palettes = len(dest_palettes)
 
 		# s[0]: [ d1[0], d2[0], ... ],
 		# s[1]: [ d1[1], d2[1], ... ]
 
-		assert all(len(source_palette) == len(d) for d in dest_palettes)
+		if not all(len(source_palette) == len(d) for d in dest_palettes):
+			raise Exception("Source palette and all target palettes must all have the same number of colors: \n" +
+				f"source palette {source_palette.name} = {len(source_palette)} colors: {source_palette} \n" +
+				"target palettes: \n" + 
+				"\n".join(f"- #{i}, {d.name} = {len(d)} colors: {d}" for i, d in enumerate(dest_palettes))
+				)
 
 		# super().__init__(zip(source_palette, dest_palettes))
 		# 
 		super().__init__( (s, [ d[i] for d in dest_palettes ]) for i,s in enumerate(source_palette) )
+
+	def __repr__(self):
+		return f"ImagePaletteMapping({repr(self.source_palette)}, {repr(self.dest_palettes)})"
+
+	def __add__(self, other):
+		if len(other) != len(self):
+			raise NotImplementedError("Mappings must have the same number of colors to concatenate")
+		if set(self.keys()) == set(other.keys()):
+			self_reordered = self.reorder_like(other)
+			return ImagePaletteMapping(self_reordered.source_palette, 
+				self_reordered.dest_palettes + other.dest_palettes)
+		raise Exception("Cannot add mappings with different source palettes")
+
+	def reorder_like(self, other):
+		# self = ['a','b','c','d']
+		# other = ['d','a','b','c']
+		# self[[3, 0, 1, 2]] == other
+
+		ordering = [self.index(c) for c in other.source_palette]
+		return self.reorder(ordering)
+
+	def reorder(self, ordering):
+		source_palette = self.source_palette.reorder(ordering)
+		dest_palettes = [d.reorder(ordering) for d in self.dest_palettes]
+		return ImagePaletteMapping(source_palette, dest_palettes)
+
+	def sort_colors(self, param='value', verbose=False):
+		ordering = self.source_palette.argsort(param)
+		return self.reorder(ordering)
+
+	@property
+	def palettes(self):
+		return [self.source_palette] + self.dest_palettes
 
 	def to_image(self, path=None):
 		# +1 for the source palette
@@ -352,7 +462,7 @@ def load_palette_mapping_png(img, names=None, **kwargs):
 
 	if names is not None:
 		if len(names) != dests.shape[0]:
-			raise Exception(f'Error: {len(names)} names provided for {dests.shape[0]}')
+			raise Exception(f'Error: {len(names)} names provided for {dests.shape[0]} palettes')
 		dests = { name:pal for name, pal in zip(names, dests) }
 
 	return ImagePaletteMapping(source, dests)	
@@ -513,24 +623,29 @@ def make_mapping(source_path, target_paths, names=None, verbose=False):
 	return colormap
 
 
-
-
-def convert_palette(input, output):
+def convert_palette(input, output, sort=None, verbose=False):
 	in_pal = load_palette(input)
+	if sort is not None:
+		if verbose: print(f"Sorting by channel {sort}")
+		in_pal = in_pal.sort(sort)
 	save_palette(in_pal, output)
 
 def main_convertpalette(args):
 	return convert_palette(args.input, args.output)
 
 
-def convert_mapping(input, output):
-	in_map = load_palette_mapping(input)
+def convert_mapping(input, output, names=[], sort=None, verbose=True):
+	in_map = load_palette_mapping(input, names=names)
+	if sort is not None:
+		if verbose: print(f"Sorting by channel {sort}")
+		in_map = in_map.sort_colors(sort)
 	save_palette_mapping(in_map, output)
 
 def main_convertmapping(args):
-	return convert_mapping(args.input, args.output)
+	return convert_mapping(args.input, args.output, args.names, sort=args.sort, verbose=args.verbose)
 
-def main_colormap(args):
+
+def main_create_mapping(args):
 	colormap = make_mapping(args.source, args.target, verbose=args.verbose)
 	if args.verbose: 
 		print(colormap)
@@ -538,40 +653,128 @@ def main_colormap(args):
 
 	save_palette_mapping(colormap, args.output)
 
+
+def concat_mappings(mappings, source=None, targets=None, filter=False, drop=False, sort=None):
+	pass
+
+def main_concat_mappings(args):
+	pass
+
+# def main_recolor(args):
+# 	# mapping = load_palette_map_json(args.mapping)
+
+# 	if args.mapping is not None:
+# 		if args.verbose: 
+# 			if args.palettes is not None:
+# 				print(f"Reading palette mapping: {args.mapping}")
+# 			else:
+# 				print(f"Reading palette mapping: {args.mapping}; renaming the palettes {args.palettes}")
+# 		mapping = load_palette_mapping(args.mapping, names=args.palettes)
+# 	elif args.source is not None and args.target is not None:
+# 		mapping = make_mapping(args.source, args.target, verbose=args.verbose)
+# 	else: 
+# 		raise Exception('Must specify the color mapping, using either --mapping or --from and --to.')
+
+# 	if args.mapping_output is not None:
+# 		if args.verbose: print(f"Writing image representation of palette mapping to {args.mapping_output}")
+# 		mapping_img = mapping.to_image()
+# 		mapping_img.save(args.mapping_output)
+
+
+
+# 	output_paths = args.output
+# 	if len(output_paths) == 1:
+# 		output_paths = output_paths * len(args.input)
+# 	elif len(output_paths) != len(args.input):
+# 		raise Exception("Must give either one --output argument, or the same number of --output as --input arguments (one per image) \n"
+# 			f"- Inputs: {args.input} \n"
+# 			f"- Outputs: {output_paths} \n")
+
+# 	if args.verbose: print(output_paths)
+
+# 	for input_path, output_path_fmt in zip(args.input, output_paths):
+# 		if args.verbose: print(f"Reading input image {input_path}...")
+# 		input_path_basename = os.path.basename(input_path)
+# 		input_path_basename_sans_ext, _ = os.path.splitext(input_path_basename)
+# 		input_path_sans_ext, input_path_ext = os.path.splitext(input_path)
+# 		input_path_ext = input_path_ext.lstrip('.')
+
+# 		img = Image.open(input_path)
+
+# 		out_imgs = mapping.recolor_image(img) #recolor_map(img, mapping)
+
+# 		for (out_img, palette_name) in zip(out_imgs, mapping.names):
+# 			output_path = format_placeholders(output_path_fmt, {
+# 				'%B': input_path_basename,
+# 				'%b': input_path_basename_sans_ext,
+# 				'%i': input_path_sans_ext, 
+# 				'%e': input_path_ext,
+# 				'%I': input_path,
+# 				'%p': palette_name
+# 			})
+
+# 			if args.verbose: print(f"- writing output from palette '{palette_name}' to {output_path}")
+# 			mkdirpf(output_path)
+# 			out_img.save(output_path)
+
+# 		# [out.save(args.output + name + ".png") for (out, name) in zip(outs, mapping.names)]
+
+
 def main_recolor(args):
 	# mapping = load_palette_map_json(args.mapping)
 
-	if args.mapping is not None:
-		if args.verbose: 
-			if args.palettes is not None:
-				print(f"Reading palette mapping: {args.mapping}")
-			else:
-				print(f"Reading palette mapping: {args.mapping}; renaming the palettes {args.palettes}")
-		mapping = load_palette_mapping(args.mapping, names=args.palettes)
-	elif args.source is not None and args.target is not None:
-		mapping = make_mapping(args.source, args.target, verbose=args.verbose)
-	else: 
+	mappings = []
+	if len(args.mapping) > 0:
+		if len(args.palettes) > 0:
+			if len(args.palettes) != len(args.mapping):
+				raise Exception("If both the --mapping and --palette-names are given, they must be given the same number of times")
+			palette_names = args.palettes
+
+			if args.verbose: print(f"Reading palette mapping(s): {args.mapping}; renaming the palettes {args.palettes}")
+		else: 
+			palette_names = [[]] * len(args.mapping)
+			if args.verbose: print(f"Reading palette mapping(s): {args.mapping}")
+
+		for mapping, names in zip(args.mapping, palette_names):
+			mappings.append(load_palette_mapping(mapping, names=names))
+
+	if len(args.source) > 0 and len(args.target) > 0:
+		if len(mappings) > 0 and args.mode == 'product':
+			print("Warning: multiple mappings were specified with both --mapping and --from/--to flags, and you " 
+				"have indicated to take the product of palettes in all mappings. The order of the palettes may "
+				"not be what you expect, since all mappings specified with --mapping will be evaluated before "
+				"any mappings specified with --from/--to. Use option -v to see in what order the mappings are "
+				"evaluated. ")
+		if len(args.source) != len(args.target):
+			raise Exception("If using --from and --to, must provide the same number of --from flags as --to flags.")
+
+		for source, target in zip(args.source, args.target):
+			mappings.append(make_mapping(source, target, verbose=args.verbose))
+
+	if len(mappings) == 0:
 		raise Exception('Must specify the color mapping, using either --mapping or --from and --to.')
 
 	if args.mapping_output is not None:
 		if args.verbose: print(f"Writing image representation of palette mapping to {args.mapping_output}")
 		mapping_img = mapping.to_image()
 		mapping_img.save(args.mapping_output)
+	
+	recolor(args.input, mappings, args.output, mode=args.mode, verbose=False)
 
 
+def recolor(images, mappings, output_paths, mode='sum', verbose=False):
+	# mapping = load_palette_map_json(args.mapping)
 
-	output_paths = args.output
 	if len(output_paths) == 1:
-		output_paths = output_paths * len(args.input)
-	elif len(output_paths) != len(args.input):
+		output_paths = output_paths * len(images)
+	elif len(output_paths) != len(images):
 		raise Exception("Must give either one --output argument, or the same number of --output as --input arguments (one per image) \n"
-			f"- Inputs: {args.input} \n"
+			f"- Inputs: {images} \n"
 			f"- Outputs: {output_paths} \n")
 
-	if args.verbose: print(output_paths)
 
-	for input_path, output_path_fmt in zip(args.input, output_paths):
-		if args.verbose: print(f"Reading input image {input_path}...")
+	for input_path, output_path_fmt in zip(images, output_paths):
+		if verbose: print(f"Reading input image {input_path}...")
 		input_path_basename = os.path.basename(input_path)
 		input_path_basename_sans_ext, _ = os.path.splitext(input_path_basename)
 		input_path_sans_ext, input_path_ext = os.path.splitext(input_path)
@@ -579,9 +782,7 @@ def main_recolor(args):
 
 		img = Image.open(input_path)
 
-		out_imgs = mapping.recolor_image(img) #recolor_map(img, mapping)
-
-		for (out_img, palette_name) in zip(out_imgs, mapping.names):
+		def save_img(out_img, palette_name):
 			output_path = format_placeholders(output_path_fmt, {
 				'%B': input_path_basename,
 				'%b': input_path_basename_sans_ext,
@@ -591,9 +792,55 @@ def main_recolor(args):
 				'%p': palette_name
 			})
 
-			if args.verbose: print(f"- writing output from palette '{palette_name}' to {output_path}")
+			if verbose: print(f"- writing output from palette '{palette_name}' to {output_path}")
 			mkdirpf(output_path)
 			out_img.save(output_path)
 
-		# [out.save(args.output + name + ".png") for (out, name) in zip(outs, mapping.names)]
+
+		# apply each mapping in series
+		if mode == 'sum':
+			for mapping in mappings:
+
+				out_imgs = mapping.recolor_image(img) #recolor_map(img, mapping)
+
+				for (out_img, palette_name) in zip(out_imgs, mapping.names):
+					save_img(out_img, palette_name)
+
+		# apply all combinations of mappings
+		elif mode == 'product':
+
+			# start with a single image (the input image)
+			# apply the first mapping to all images; collect a list of output images (one per palette)
+			# then apply the next mapping to each of the accumulated output images; continue
+			# until no mappings remain
+
+			mapped_imgs = [img]
+			palette_paths = ['']
+
+			remaining_mappings = mappings[:]
+			while len(remaining_mappings) > 0:
+
+				mapping, *remaining_mappings = remaining_mappings
+
+				if verbose: print(f"Applying mapping {repr(mapping)}")
+
+				mapping_out_imgs = []
+				mapping_palette_paths = []
+
+				for img, palette_path in zip(mapped_imgs, palette_paths):
+					mapping_out_imgs.extend(mapping.recolor_image(img)) #recolor_map(img, mapping)
+					mapping_palette_paths.extend([palette_path + '-' + palette_name for palette_name in mapping.names])
+					
+				mapped_imgs = mapping_out_imgs
+				palette_paths = mapping_palette_paths
+
+				if verbose: print(f" -> {zip(mapped_imgs, palette_paths)}")
+
+
+			for (out_img, palette_name) in zip(mapped_imgs, palette_paths):
+				save_img(out_img, palette_name.lstrip('-'))
+
+		else:
+			raise Exception(f"Unsupported mapping combinator {mode}; choose from 'sum' or 'product'")
+
 

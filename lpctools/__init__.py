@@ -123,15 +123,16 @@ def main(argv=None):
 			""")
 
 
-		# RECOLOR subcommand
+		# colors RECOLOR subcommand
+		# ------------------
 		parser_recolor = subparsers.add_parser('recolor', help='Recolor an image',
 			formatter_class=argparse.RawTextHelpFormatter,
 
 			epilog=dedent(f"""\
 				Recolor an image to one or more palettes. 
 
-				Either specify individual palettes with --from and --to , or give a
-				list of multiple palettes with --mapping .
+				Either specify individual palettes with --from and --to , or give several palettes 
+				at once with --mapping .
 
 				PALETTES
 				{palette_help}
@@ -143,6 +144,24 @@ def main(argv=None):
 
 				FILE NAMING
 				{pattern_help}
+
+
+				MULTIPLE MAPPINGS
+				Multiple mappings can be given, either by multiple --mapping flags, or by multiple
+				--from/--to flags. You can control the behavior in this case with --combine:
+
+				--combine sum (default): each mapping is applied separately to each input image. 
+				This is equivalent to running the command multiple times, once with each mapping. 
+
+				--combine product: generate all combinations of palettes from the given mappings. 
+				That is, apply the first mapping to generate a set of N recolored images, 
+				then apply the second mapping to EACH of those N images, generating N * M recolored 
+				images, then apply the third mapping (if given) to EACH of those N * M images to 
+				generate N * M * K images, and so on. 
+
+				--combine product is useful if the mappings specify different materials, for 
+				instance if MAPPING1 gives colors of fabric and MAPPING2 gives colors of metal 
+				buttons. 
 				""")
 			)
 		parser_recolor.add_argument('--input', dest='input', action='extend', nargs='+',
@@ -152,15 +171,17 @@ def main(argv=None):
 							default=['%i/%p.%e'],
 							help='How should output files be named? (default: %(default)s)')
 		# parser_recolor.add_argument('--output-dir', dest='output_dir')
-		parser_recolor.add_argument('--from', dest='source', help="source palette")
-		parser_recolor.add_argument('--to',  dest='target', action='extend', nargs='+', help="one or more destination palette(s)")
+		parser_recolor.add_argument('--from', dest='source', action='append', default=[], nargs='+', help="source palette(s)")
+		parser_recolor.add_argument('--to',  dest='target', action='append', default=[], nargs='+', help="destination palette(s)")
 
-		parser_recolor.add_argument('--mapping', dest='mapping', help="color mapping; create mapping from palettes with create-mapping")
-		parser_recolor.add_argument('--palette-names', dest='palettes', action='extend', nargs='+', 
+		parser_recolor.add_argument('--mapping', dest='mapping', default=[], action='append', help="color mapping(s); create mapping from palettes with create-mapping")
+		parser_recolor.add_argument('--palette-names', dest='palettes', default=[], action='append', nargs='+', 
 			help=dedent("""\
 			specify or override the names for palettes given in MAPPING. If 
 			"MAPPING is an image, you must specify palette names here, or 
 			recolored images will be named 1.png, 2.png, etc."""))
+
+		parser_recolor.add_argument('--combine', dest='mode', choices=['sum','product'], default='sum', help='how to combine multiple mappings, if specified')
 		parser_recolor.add_argument('--output-mapping-image', dest='mapping_output', help="Write an image representation of the palette mapping to this path, if given")
 
 		# convertpalette subcommand
@@ -173,13 +194,20 @@ def main(argv=None):
 			)
 		parser_palette.add_argument('--input', help='input color palette; format will be inferred from file extension')
 		parser_palette.add_argument('--output', help='output color palette; format will be inferred from file extension')
+		parser_palette.add_argument('--sort', help='sorts the palette by alpha, then luminosity', action='store_const', const='auto')
 
 		# convertmapping subcommand
-		parser_convertpalette = subparsers.add_parser('convert-mapping', 
+		parser_convertmapping = subparsers.add_parser('convert-mapping', 
 			help='Convert a color mapping between formats',
 			description='Convert a color mapping (created with `lpctools colors create-mapping`) between formats.')	
-		parser_convertpalette.add_argument('--input', help='input color mapping; format will be inferred from file extension')
-		parser_convertpalette.add_argument('--output', help='output color mapping; format will be inferred from file extension')
+		parser_convertmapping.add_argument('--input', help='input color mapping; format will be inferred from file extension')
+		parser_convertmapping.add_argument('--output', help='output color mapping; format will be inferred from file extension')
+		parser_convertmapping.add_argument('--palette-names', dest='names', default=[], action='extend', nargs='+', 
+			help=dedent("""\
+			specify or override the names for palettes given in INPUT. If 
+			"INPUT is an image, you must specify palette names here, or 
+			recolored images will be named 1.png, 2.png, etc."""))
+		parser_convertmapping.add_argument('--sort', help='sorts the mapping by alpha, then luminosity of the source palette', action='store_const', const='auto')
 
 		# createmapping subcommand
 		parser_mapping = subparsers.add_parser('create-mapping', help='Construct a color mapping from palette(s)',
