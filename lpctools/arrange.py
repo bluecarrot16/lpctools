@@ -218,7 +218,9 @@ animations = {
 }
 
 animation_synonyms = {
-	'spellcast':'cast'
+	'spellcast':'cast',
+	'magic':'cast',
+	'swing':'slash'
 }
 
 # class AnimationLayer():
@@ -347,7 +349,11 @@ class AnimationLayout():
 		return new_img
 
 	def unpack_images(self, img, verbose=True):
-		assert img.size == self.pixel_size, f"Image is not same size as layout; Image size: {img.size}, layout size: {self.pixel_size}"
+		if img.size != self.pixel_size:
+			if img.size[0] < self.pixel_size[0] or img.size[1] < self.pixel_size[1]:
+				raise Exception(f"Image is smaller than layout; Image size: {img.size}, layout size: {self.pixel_size}")
+			else: 
+				print(f"Warning: image is larger than layout; right- and/or bottom- edge of image will be trimmed. Image size: {img.size}, layout size: {self.pixel_size}")
 
 		output = {}
 		for afi, pos in self.positions.items():
@@ -377,8 +383,8 @@ class AnimationLayout():
 
 	@staticmethod
 	def from_rows(rows):
-		"""each row is a tuple (animation, direction, nframes); each row will be populated with [(animation, direction, 0), (animation, direction, 1), ... (animation, direction, nframes-1)] """
-		# out_rows = [[(row[0], row[1], i) for i in range(row[2])] for row in rows]
+		"""each row is a list of tuple (animation, direction, nframes); each row will be populated with [(animation, direction, 0), (animation, direction, 1), ... (animation, direction, nframes-1)] """
+		
 		out_rows = []
 		for row in rows:
 			if (isinstance(row, tuple) and len(row) == 3) or (row is None):
@@ -392,11 +398,12 @@ class AnimationLayout():
 					if isinstance(c[2], collections.abc.Iterable):
 						out_row.extend([ (c[0], c[1], i) for i in c[2] ])
 					else:
-						out_row.append(row)
+						out_row.append(c)
 				else: out_row
 			out_rows.append(out_row)
 
 		return AnimationLayout.from_array(out_rows)
+
 
 	@staticmethod
 	def from_animation(name, nframes, directions=['n','w','s','e']):
@@ -494,9 +501,34 @@ layouts = {
 			('run' , 's' , range(8)), 
 			('run' , 'e' , range(8))
 		]),
+	'universal-idle': AnimationLayout.from_rows([
+			[ ('cast'   , 'n' , range(7)) ] ,
+			[ ('cast'   , 'w' , range(7)) ] ,
+			[ ('cast'   , 's' , range(7)) ] ,
+			[ ('cast'   , 'e' , range(7)) ] ,
+			[ ('thrust' , 'n' , range(8)) ] ,
+			[ ('thrust' , 'w' , range(8)) ] ,
+			[ ('thrust' , 's' , range(8)) ] ,
+			[ ('thrust' , 'e' , range(8)) ] ,
+			[ ('idle'   , 'n' , 1 ), ('walk'   , 'n' , range(8)) ],
+			[ ('idle'   , 'w' , 1 ), ('walk'   , 'w' , range(8)) ],
+			[ ('idle'   , 's' , 1 ), ('walk'   , 's' , range(8)) ],
+			[ ('idle'   , 'e' , 1 ), ('walk'   , 'e' , range(8)) ],
+			[ ('slash'  , 'n' , range(6))  ],
+			[ ('slash'  , 'w' , range(6))  ],
+			[ ('slash'  , 's' , range(6))  ],
+			[ ('slash'  , 'e' , range(6))  ],
+			[ ('shoot'  , 'n' , range(13)) ],
+			[ ('shoot'  , 'w' , range(13)) ],
+			[ ('shoot'  , 's' , range(13)) ],
+			[ ('shoot'  , 'e' , range(13)) ],
+			[ ('hurt'   , 's' , range(6))  ]
+		]),
 	'cast': AnimationLayout.from_animation('cast',7),
 	'thrust': AnimationLayout.from_animation('thrust',8),
 	'walk': AnimationLayout.from_animation('walk',9),
+	'walk-noidle': AnimationLayout.from_animation('walk',8),
+	'idle': AnimationLayout.from_animation('idle',1),
 	'slash': AnimationLayout.from_animation('slash',6),
 	'shoot': AnimationLayout.from_animation('shoot',13),
 	'hurt': AnimationLayout.from_animation('hurt',6,['s']),
@@ -505,7 +537,11 @@ layouts = {
 	'carry': AnimationLayout.from_animation('carry',9),
 	'jump': AnimationLayout.from_animation('jump',5),
 	'run': AnimationLayout.from_animation('jump',8),
-	'gun': AnimationLayout.from_animation('jump',9)
+	'gun': AnimationLayout.from_animation('gun',9),
+	'demux': AnimationLayout.from_rows([
+			[('cast', 's', 0), ('cast', 'w', 0), ('cast', 'n', 0), ('cast', 'w', 0), ('cast', 'e', 0)]  ,
+			[('hurt' , 's' , 2), ('hurt' , 's' , 3), ('hurt' , 's' , 4), ('hurt' , 's' , 5) ] 
+		])
 }
 
 
@@ -707,7 +743,7 @@ def distribute(image_paths, offsets_image, masks_image, layout, output=None,
 
 	image_groups = []
 
-	if verbose: print(f"image_paths: {image_paths}")
+	if verbose: print(f"image_paths: {image_paths}\n")
 
 	# image_paths: (list of images) | (list of dirs) | (list of lists of images)
 	# list of lists
@@ -734,7 +770,7 @@ def distribute(image_paths, offsets_image, masks_image, layout, output=None,
 		# list of images
 		image_groups.append(image_group)
 
-	if verbose: print(f"image_groups: {image_groups}")
+	if verbose: print(f"image_groups: {image_groups}\n")
 
 
 	# output: str | list of str | None
@@ -742,12 +778,24 @@ def distribute(image_paths, offsets_image, masks_image, layout, output=None,
 		output = [output]
 	elif not isinstance(output, collections.abc.Iterable):
 		raise ("output must be str, None, or list of same length as image_paths")
+
 	if len(output) == 1:
 		output = output * len(image_groups)
+	# elif len(output) == 0:
+	# 	if verbose: print(f"inferring output file from inputs")
+	# 	for i, image_group in enumerate(image_groups):
+	# 		dirnames = [os.path.dirname(path) for path in image_group]
+	# 		if all_equal(dirnames):
+	# 			output.append(dirnames[0]+'.png')
+	# 		else:
+	# 			raise Exception(f"Cannot automatically figure out an output directory for image group {i}; "
+	# 				"images are not all in the same folder. You should specify output paths explicitly with --output ."
+	# 				f"Image group {i} = {image_group}")
+	# 	assert len(output) == len(image_groups)
 	elif len(output) != len(image_groups):
 		raise Exception("Must give either one --output path or an equal number of --output paths to groups of --input images.")
 
-	if verbose: print(f"output: {output}")	
+	if verbose: print(f"output: {output}\n")	
 
 	animations = layout.get_animations()
 	if verbose: print(f"detected animations: {animations}")
@@ -784,7 +832,9 @@ def distribute(image_paths, offsets_image, masks_image, layout, output=None,
 
 	output_imgs = []
 	for image_group, group_output in zip(image_groups, output):
-		if verbose: print(f"BEGIN GROUP '{image_group}'")
+		if verbose: 
+			print(f"BEGIN GROUP '{image_group}'")
+
 
 		img_layers = []
 		for layer_name, layer_args in layers.items():
@@ -811,9 +861,13 @@ def distribute(image_paths, offsets_image, masks_image, layout, output=None,
 		# import pdb;pdb.set_trace()
 		img = composite_images(img_layers)
 
+
 		if group_output is not None:
+			if verbose: print(f"END GROUP: --> {group_output}")
 			mkdirpf(group_output)
 			img.save(group_output)
+		else:
+			if verbose: print(f"END GROUP (no output)")
 
 		output_imgs.append(img)
 
