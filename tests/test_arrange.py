@@ -189,7 +189,8 @@ class TestDistribute():
 			layout = 'universal', 
 			output = outfile)
 
-		assert filecmp.cmp(outfile, 'tests/arrange_files/hair/hair_plain.png')
+		# assert filecmp.cmp(outfile, 'tests/arrange_files/hair/hair_plain.png')
+		assert_images_equal(outfile, 'tests/arrange_files/hair/hair_plain.png')
 
 		# test with multiple directories as input
 		# outfiles = ['tests/arrange_files/hair/hair_page2.png', 'tests/arrange_files/hair/hair_shortknot.png']
