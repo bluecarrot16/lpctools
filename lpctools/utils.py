@@ -101,7 +101,9 @@ def mkdirp(*paths):
 
 def mkdirpf(*paths):
 	fn = os.path.join(*paths)
-	os.makedirs(os.path.dirname(fn), exist_ok=True)
+	dn = os.path.dirname(fn)
+	if dn != '':
+		os.makedirs(dn, exist_ok=True)
 	return fn
 
 def format_placeholders(template, placeholders, special='%'):
