@@ -247,7 +247,7 @@ def main(argv=None):
 
 	def main_arrange(argv, ns=None):
 		
-		from .arrange import layouts, distribute_layers, IMAGE_FRAME_PATTERN, main_pack, main_unpack, main_repack, main_distribute
+		from .arrange import layouts, distribute_layers, IMAGE_FRAME_PATTERN, main_pack, main_unpack, main_repack, main_distribute, main_distribute_repack
 
 		parser = argparse.ArgumentParser(description='Utilities for arranging and combining images', prog='lpctools arrange')
 		subparsers = parser.add_subparsers(dest='command', title='subcommands', required=True, 
@@ -304,6 +304,30 @@ def main(argv=None):
 		parser_unpack.add_argument('--output-dir',dest='output_dir', default='.', 
 			help='Directory where the frame images should be placed')
 		parser_unpack.add_argument('--layout', default='universal')
+
+
+
+		parser_distrepack = subparsers.add_parser('distribute-repack', 
+			help='Unpacks images from a spritesheet and distributes across another layout',
+			description='Advanced option. Combination of --unpack and --distribute.',
+			formatter_class=argparse.RawTextHelpFormatter)
+
+
+		parser_distrepack.add_argument('--input',required=True, 
+			help=wrap_fill('Packed image(s). If multiple images per --input flag, images correspond to different '
+				'layers and must be named LAYER_NAME=IMAGE_PATH, e.g. `--input main=image1.png bg=image2.png`. '
+				'For separate images, use multiple --input groups.'
+				),
+			action='append', nargs='+')
+		parser_distrepack.add_argument('--output', required=True, action='extend', nargs='+',
+			help='Path where the complete spritesheet(s) should be placed')
+		parser_distrepack.add_argument('--from', metavar='FROM_LAYOUT', dest='from_layout', default='universal', help='Layout of the original spritesheet image')
+		parser_distrepack.add_argument('--to', metavar='TO_LAYOUT', dest='to_layout', required=True, help='Layout to use for the output images. MASKS and OFFSET images should have this shape.')
+		parser_distrepack.add_argument('--layout', default='universal')
+		parser_distrepack.add_argument('--offsets', '--offset',
+			help='Path to image specifying the x/y coordinate for each frame in TO_LAYOUT')
+		parser_distrepack.add_argument('--masks', '--mask', 
+			help='Path to image specifying the cutouts/masks for each layer for each frame in TO_LAYOUT')
 
 
 		parser_repack = subparsers.add_parser('repack', help='Re-packs animation frames from one spritesheet layout to other(s)',
@@ -435,7 +459,8 @@ def main(argv=None):
 			'unpack':main_unpack,
 			'repack':main_repack,
 			'pack':main_pack,
-			'distribute':main_distribute
+			'distribute':main_distribute,
+			'distribute-repack': main_distribute_repack
 		}
 
 		sub_commands[args.command](args)

@@ -23,103 +23,86 @@ from .utils import *
 
 COLOR_TRANSPARENT = Color(255,255,255,0)
 
-class AnimationTemplate():
+
+class ImageCollection(dict):
+
+	def pick_image():
+		pass
+
+	def apply_templates():
+		pass
+
+class FrameTemplate():
 
 	# number of frames
 	# frame size
 	# offset for each frame
-	def __init__(self, offsets=None, masks=None, frame_size=(64,64)):
-
-		if offsets is None and masks is None:
-			raise Exception('Must set `masks`, `offsets`, or both!')
-		elif offsets is None and masks is not None:
-			nframes = len(masks)
-			self.masks = masks
-			self.offsets = [(0,0)] * nframes
-		elif offsets is not None and masks is None:
-			self.offsets = offsets
-			self.masks = []*len(offsets) # TODO
-		else:
-			self.offsets = offsets
-			self.masks = masks
-			# if nframes != len(self.offsets): 
-			# 	raise Exception('If both `nframes` and `offsets` are provided, `nframes` must equal `len(offsets)`')
+	def __init__(self, offset=None, mask=None, frame_size=(64,64)):
 
 		self.frame_size = frame_size
 
-	@property
-	def nframes(self): return len(self.offsets)
+		if offset is None:
+			self.offset = (frame_size[0]//2,frame_size[1]//2)
+		else: 
+			self.offset = offset
+			if self.offset[0] > self.frame_size[0] or self.offset[1] > self.frame_size[1]:
+				raise Exception(f"Offset {offset} outside the bounds of frame size {frame_size}")
 
-	def apply(self, images):
-		imgs = []
-		transparent_img = Image.new(mode='RGBA', size=self.frame_size)
-		tmp_img = Image.new(mode='RGBA',size=self.frame_size,color=COLOR_TRANSPARENT)
+		if mask is None:
+			self.mask = Image.new(mode='RGBA',size=self.frame_size,color=COLOR_TRANSPARENT)
+		else:
+			self.mask = mask
+			if mask.size != self.frame_size:
+				raise Exception(f"Mask size {mask.size} != frame size {frame_size}")
+
+		if self.offset is None and self.mask is None:
+			raise Exception('Must set either `masks`, `offsets`, or both!')
+
+	def apply(self, img, tmp_img=None, transparent_img=None):
 		box_whole = (0,0, self.frame_size[0], self.frame_size[1])
 
-		for img, offset, mask in zip(images, self.offsets, self.masks):
-			# (a, b, c, d, e, f)
-			# (x, y) = (ax+by+c, dx+ey+f)
-			# img.transform(img.size, Image.AFFINE, (1,0,offset[0],1,0,offset[1]))
-
-			# box = offset + (
-			# 	min(offset[0]+img.size[0], self.frame_size[0]), 
-			# 	min(offset[1]+img.size[1], self.frame_size[1]))
-			# box = offset
+		if tmp_img is None: 
+			tmp_img = Image.new(mode='RGBA',size=self.frame_size,color=COLOR_TRANSPARENT)
+		else:
 			tmp_img.paste(COLOR_TRANSPARENT, box=box_whole)
+		
+		if transparent_img is None: transparent_img = Image.new(mode='RGBA', size=self.frame_size)
 
-			if img is not None:
-				# offset coordinates are w/r/t the middle of img
-				box = (offset[0] - img.size[0]//2, 
-					   offset[1] - img.size[1]//2)
+		# might be None if `pick_image` didn't find any images for this layer
+		if img is not None:
 
-			# image = Image.new(mode='RGBA',size=self.frame_size,color=COLOR_TRANSPARENT).paste(img, box=box, mask=mask)
-			# new_img = Image.new(mode='RGBA',size=self.frame_size,color=COLOR_TRANSPARENT)
+			# offset coordinates are w/r/t the middle of img
+			box = (self.offset[0] - img.size[0]//2, 
+				   self.offset[1] - img.size[1]//2)			
+			tmp_img.paste(img, box=box)
 
-			# might be None if `pick_image` didn't find any images for this layer
-			
-				tmp_img.paste(img, box=box)
-			# new_img.paste(img, box=box)
-			# imgs.append(Image.composite(transparent_img, new_img, mask))
-			imgs.append(Image.composite(transparent_img, tmp_img, mask))
 
-			# yield image
-			# imgs.append(new_img)
-
-		return imgs
+		return Image.composite(transparent_img, tmp_img, self.mask)
 
 	@staticmethod
-	def from_images(offsets=None, masks=None, mask_colors=['#ffffff'], **kwargs):
-		_offsets = None
-		if offsets is not None:
-			_offsets = [img.getbbox()[:2] for img in offsets]
+	def from_images(offset=None, mask=None, mask_colors=['#ffffff'], **kwargs):
+		_offset = None
+		if offset is not None: 
+			bbx = offset.getbbox()
 
-		_masks = None
-		if masks is not None:
-			mask_colors = [Color(mask_color).to_array() for mask_color in mask_colors]  #[np.newaxis, np.newaxis, :]
-			# _masks = [Image.fromarray((np.array(img) == mask_color).all(axis=-1) * 255, mode='L') for img in masks]
-			# _masks = [Image.fromarray( np.logical_not( (np.array(img) == mask_color).all(axis=-1) ) * 255, mode='L') for img in masks]
-			# 
-			# _masks = [Image.fromarray( ((np.array(img) == mask_color).all(axis=-1).astype('uint8') * 255) , mode='L') for img in masks]
+			# if image is completely empty, getbbox() returns None, so use default offset
+			if bbx is not None:
+				_offset = bbx[:2]
+
+		_mask = None
+		if mask is not None:
+			if not isinstance(mask_colors,np.ndarray):
+				mask_colors = [Color(mask_color).to_array() for mask_color in mask_colors]  #[np.newaxis, np.newaxis, :]
 			
-			_masks = []
-			for img in masks:
-				arr = np.logical_or.reduce( [(np.array(img) == mask_color).all(axis=-1) for mask_color in mask_colors] )
-				_masks.append(Image.fromarray( (arr.astype('uint8') * 255) , mode='L'))
+			arr = np.logical_or.reduce( [(np.array(mask) == mask_color).all(axis=-1) for mask_color in mask_colors] )
+			_mask = Image.fromarray( (arr.astype('uint8') * 255) , mode='L')
 
-
-			# for img in masks:
-			# 	assert not (np.array(img) == mask_color).all(axis=-1).any()
-
-		return AnimationTemplate(_offsets, _masks, **kwargs)
-
+		return FrameTemplate(_offset, _mask, **kwargs)
 
 
 def pick_image(afi, images, verbose=False):
-	""" picks the best image corresponding to (animation_name, direction, frame)
+	""" picks the best image corresponding to (animation_name, direction, frame), from a collection of images
 	"""
-	# if afi in images:
-	# 	if verbose: print(f"PICK {afi} --> {afi}")
-	# 	return images[afi]
 
 	choices = [afi, (afi[0], afi[1], None), (None, afi[1], afi[2]), (None, afi[1], None), (None, None, None)]
 	for c in choices:
@@ -127,73 +110,121 @@ def pick_image(afi, images, verbose=False):
 			if verbose: print(f"PICK {afi} --> {c}  '{images[c].filename}'")
 			return images[c]
 
-	# c = 
-	# if c in images:
-	# 	if verbose: print(f"PICK {afi} --> {c}")
-	# 	return images[c]
-
-	# c = (None, None, None)
-	# if c in images:
-	# 	if verbose: print(f"PICK {afi} --> {c}")
-	# 	return images[c]
-	
 	if verbose: print(f"miss {afi}")
 
-def get_animation_templates(animations, offsets_image, masks_image, layout, verbose=False, **kwargs):
-	offsets_images = layout.unpack_images(offsets_image)
-	masks_images = layout.unpack_images(masks_image)
+# def get_animation_templates(animations, offsets_image, masks_image, layout, verbose=False, **kwargs):
+# 	offsets_images = layout.unpack_images(offsets_image)
+# 	masks_images = layout.unpack_images(masks_image)
 
-	templates = []
-	for animation in animations:
-		templates.append(
-			AnimationTemplate.from_images(
-				offsets = [pick_image(afi, offsets_images, verbose=verbose) for afi in animation.frames],
-				masks = [pick_image(afi, masks_images, verbose=verbose) for afi in animation.frames],
-				**kwargs
-			)
+# 	templates = []
+# 	for animation in animations:
+# 		templates.append(
+# 			AnimationTemplate.from_images(
+# 				offsets = [pick_image(afi, offsets_images, verbose=verbose) for afi in animation.frames],
+# 				masks = [pick_image(afi, masks_images, verbose=verbose) for afi in animation.frames],
+# 				**kwargs
+# 			)
+# 		)
+# 	return templates
+
+
+def get_frame_templates_from_images(layout, offsets_image=None, masks_image=None, verbose=False, **kwargs):
+	""" splits a masks_image and/or offsets_image according to a `layout`, then produces a FrameTemplate for 
+	each frame in the mapping, i.e. templates[afi] = FrameTemplate()
+	"""
+
+	if offsets_image is None:
+		offsets_images = {}
+	else: 
+		offsets_images = layout.unpack_images(offsets_image)
+
+	if masks_image is None:
+		masks_images = {}
+	else: 
+		masks_images = layout.unpack_images(masks_image)
+
+	templates = {}
+	for afi in layout:
+		templates[afi] = FrameTemplate.from_images(
+			offset = pick_image(afi, offsets_images, verbose=verbose),
+			mask = pick_image(afi, masks_images, verbose=verbose),
+			frame_size = layout.frame_size,
+			**kwargs
 		)
 	return templates
 
 
-def distribute_images_to_animations(animations, templates, images, verbose=False):
-	"""take some set of base images and expand them to create a full set of animations
+# def distribute_images_to_animations(animations, templates, images, verbose=False):
+# 	"""take some set of base images and expand them to create a full set of animations
 
-	animations: iterable of Animation
-	templates: iterable of (AnimationTemplate | None)
-	images: dict of (animation_name | None, direction | None, frame | None) : PIL.Image
+# 	animations: iterable of Animation
+# 	templates: iterable of (AnimationTemplate | None)
+# 	images: dict of (animation_name | None, direction | None, frame | None) : PIL.Image
 
-	returns: dict of Animation : (list of images)
+# 	returns: dict of Animation : (list of images)
+# 	"""
+
+# 	output = {}
+# 	for animation, template in zip(animations, templates):
+
+# 		# identify the best image for each frame
+# 		animation_images = [pick_image(afi, images, verbose=verbose) for afi in animation.frames]
+
+# 		# apply offset(s) and masking
+# 		if template is not None:
+# 			output[animation] = [template.apply(img) for img in animation_images]
+# 		else: 
+# 			output[animation] = animation_images
+
+# 	return output
+
+def distribute_images(images, templates, positions, verbose=False):
+	""" for each `afi` in `positions`: , picks a suitable image from `images` and applies `templates[afi]`;
+	returns a mapping of { `afi`:image }
 	"""
 
-	output = {}
-	for animation, template in zip(animations, templates):
-
-		# identify the best image for each frame
-		animation_images = [pick_image(afi, images, verbose=verbose) for afi in animation.frames]
-
-		# apply offset(s) and masking
-		if template is not None:
-			output[animation] = template.apply(animation_images)
-		else: 
-			output[animation] = animation_images
-
-	return output
-
-
-def distribute_images_via_layout(images, layout, offsets_image, masks_image, animations=None, verbose=False):
-	if animations is None: 
-		animations = layout.get_animations()
-	templates = get_animation_templates(animations, offsets_image = offsets_image, masks_image = masks_image, layout = layout)
-
-	# { Animation(name,direction,N) : [ img1, img2, ... imgN], ... }
-	animation_images = distribute_images_to_animations(animations, templates, images, verbose=verbose)
 	images_distributed = {}
-	for animation, imgs in animation_images.items():
-		for afi, img in zip(animation.frames, imgs):
+	for afi in positions:
+		img = pick_image(afi, images, verbose=verbose)
+		template = templates[afi]
+
+		if template is not None:
+			images_distributed[afi] = template.apply(img)
+		else: 
 			images_distributed[afi] = img
 
-	# assert False
+	return images_distributed
+
+def distribute_images_via_layout(images, layout, offsets_image, masks_image, verbose=False):
+	"""calculates templates from offsets_image and masks_image using `layout`, then distributes
+	`images` and repacks into `layout`
+	"""
+	templates = get_frame_templates_from_images(
+		layout = layout,
+		offsets_image = offsets_image, 
+		masks_image = masks_image)
+
+	images_distributed = distribute_images(images, templates, positions = layout, verbose=verbose)
+
 	return layout.pack_images(images_distributed)
+
+
+# def distribute_images_via_layout(images, layout, offsets_image, masks_image, animations=None, verbose=False):
+# 	if animations is None: 
+# 		animations = layout.get_animations()
+# 	templates = get_animation_templates(animations, offsets_image = offsets_image, masks_image = masks_image, layout = layout)
+
+# 	# { Animation(name,direction,N) : [ img1, img2, ... imgN], ... }
+# 	animation_images = distribute_images_to_animations(animations, templates, images, verbose=verbose)
+# 	images_distributed = {}
+# 	for animation, imgs in animation_images.items():
+# 		for afi, img in zip(animation.frames, imgs):
+# 			images_distributed[afi] = img
+
+# 	# assert False
+# 	return layout.pack_images(images_distributed)
+
+
 
 
 class Animation(collections.namedtuple('_AnimationTuple',['name','direction','nframes'])):
@@ -297,6 +328,15 @@ class AnimationLayout():
 	def __eq__(self, other):
 		return (self.frame_size == other.frame_size) and (self.positions == other.positions)
 
+	def __iter__(self):
+		yield from self.positions
+
+	def __len__(self):
+		return len(self.positions)
+
+	def items(self):
+		return self.positions.items()
+
 	def get_animations(self):
 		animations = collections.defaultdict(lambda: collections.defaultdict(int))
 		afis = self.inverse_positions.values()
@@ -333,10 +373,19 @@ class AnimationLayout():
 		new_img = Image.new('RGBA',self.pixel_size, color=COLOR_TRANSPARENT)
 
 		for pos, afi in self.inverse_positions.items():
-			if afi not in images and verbose:
+			if afi not in images or images[afi] == None and verbose:
 				print(f"Warning: missing {afi} for this layout")
 			else:
-				new_img.paste(images[afi], self.get_pixel_pos(afi))
+				img = images[afi]
+				if img.size != self.frame_size:
+					print(f"Warning: image size {img.size} != layout frame size {frame_size}")
+					tl = self.get_pixel_pos(afi)
+					pos = (
+						tl[0] + self.frame_size[0]//2 - img.size[0]//2,
+						tl[1] + self.frame_size[1]//2 - img.size[1]//2
+					)
+				else: pos = self.get_pixel_pos(afi)
+				new_img.paste(img, pos)
 
 		# for afi in images.keys():
 		# 	if afi not in self.positions:
@@ -351,15 +400,16 @@ class AnimationLayout():
 	def unpack_images(self, img, verbose=True):
 		if img.size != self.pixel_size:
 			if img.size[0] < self.pixel_size[0] or img.size[1] < self.pixel_size[1]:
-				raise Exception(f"Image is smaller than layout; Image size: {img.size}, layout size: {self.pixel_size}")
+				raise Exception(f"Image {img.filename} is smaller than layout; Image size: {img.size}, layout size: {self.pixel_size}")
 			else: 
-				print(f"Warning: image is larger than layout; right- and/or bottom- edge of image will be trimmed. Image size: {img.size}, layout size: {self.pixel_size}")
+				print(f"Warning: image {img.filename} is larger than layout; right- and/or bottom- edge of image will be trimmed. Image {img.filename} size: {img.size}, layout size: {self.pixel_size}")
 
 		output = {}
 		for afi, pos in self.positions.items():
 			(x, y) = self.get_pixel_pos(afi)
 			bbox = (x, y, x+self.frame_size[0], y+self.frame_size[0])
 			sub_img = img.crop( bbox )
+			setattr(sub_img,'filename', f"{img.filename}#({x},{y})={afi}")
 			output[afi] = sub_img
 
 		return output
@@ -371,7 +421,7 @@ class AnimationLayout():
 		return out
 
 	@staticmethod
-	def from_array(arr):
+	def from_array(arr, **kwargs):
 		out = {}
 		for i, row in enumerate(arr):
 			for j, afi in enumerate(row):
@@ -379,10 +429,10 @@ class AnimationLayout():
 					# follow image convention, where (x = col, y = row)
 					# out[afi] = (j, i) #(i, j)
 					out[(j, i)] = afi  #(i, j)
-		return AnimationLayout(out)
+		return AnimationLayout(out, **kwargs)
 
 	@staticmethod
-	def from_rows(rows):
+	def from_rows(rows, **kwargs):
 		"""each row is a list of tuple (animation, direction, nframes); each row will be populated with [(animation, direction, 0), (animation, direction, 1), ... (animation, direction, nframes-1)] """
 		
 		out_rows = []
@@ -402,12 +452,12 @@ class AnimationLayout():
 				else: out_row
 			out_rows.append(out_row)
 
-		return AnimationLayout.from_array(out_rows)
+		return AnimationLayout.from_array(out_rows, **kwargs)
 
 
 	@staticmethod
-	def from_animation(name, nframes, directions=['n','w','s','e']):
-		return AnimationLayout.from_rows( [(name, direction, range(nframes)) for direction in directions] )
+	def from_animation(name, nframes, directions=['n','w','s','e'], **kwargs):
+		return AnimationLayout.from_rows( [(name, direction, range(nframes)) for direction in directions] , **kwargs)
 
 	# def from_animations(animations):
 		# return AnimationLayout.from_rows( [(name, direction, range(nframes)) for direction in directions] )
@@ -437,6 +487,29 @@ layouts = {
 			('shoot'  , 's' , range(13)) ,
 			('shoot'  , 'e' , range(13)) ,
 			('hurt'   , 's' , range(6))
+		]),
+		'universal-idle': AnimationLayout.from_rows([
+			[ ('cast'   , 'n' , range(7)) ] ,
+			[ ('cast'   , 'w' , range(7)) ] ,
+			[ ('cast'   , 's' , range(7)) ] ,
+			[ ('cast'   , 'e' , range(7)) ] ,
+			[ ('thrust' , 'n' , range(8)) ] ,
+			[ ('thrust' , 'w' , range(8)) ] ,
+			[ ('thrust' , 's' , range(8)) ] ,
+			[ ('thrust' , 'e' , range(8)) ] ,
+			[ ('idle'   , 'n' , 0 ), ('walk'   , 'n' , range(8)) ],
+			[ ('idle'   , 'w' , 0 ), ('walk'   , 'w' , range(8)) ],
+			[ ('idle'   , 's' , 0 ), ('walk'   , 's' , range(8)) ],
+			[ ('idle'   , 'e' , 0 ), ('walk'   , 'e' , range(8)) ],
+			[ ('slash'  , 'n' , range(6))  ],
+			[ ('slash'  , 'w' , range(6))  ],
+			[ ('slash'  , 's' , range(6))  ],
+			[ ('slash'  , 'e' , range(6))  ],
+			[ ('shoot'  , 'n' , range(13)) ],
+			[ ('shoot'  , 'w' , range(13)) ],
+			[ ('shoot'  , 's' , range(13)) ],
+			[ ('shoot'  , 'e' , range(13)) ],
+			[ ('hurt'   , 's' , range(6))  ]
 		]),
 	'evert': AnimationLayout.from_rows([
 			[('cast'   , 'n' , range(7))],
@@ -501,29 +574,6 @@ layouts = {
 			('run' , 's' , range(8)), 
 			('run' , 'e' , range(8))
 		]),
-	'universal-idle': AnimationLayout.from_rows([
-			[ ('cast'   , 'n' , range(7)) ] ,
-			[ ('cast'   , 'w' , range(7)) ] ,
-			[ ('cast'   , 's' , range(7)) ] ,
-			[ ('cast'   , 'e' , range(7)) ] ,
-			[ ('thrust' , 'n' , range(8)) ] ,
-			[ ('thrust' , 'w' , range(8)) ] ,
-			[ ('thrust' , 's' , range(8)) ] ,
-			[ ('thrust' , 'e' , range(8)) ] ,
-			[ ('idle'   , 'n' , 1 ), ('walk'   , 'n' , range(8)) ],
-			[ ('idle'   , 'w' , 1 ), ('walk'   , 'w' , range(8)) ],
-			[ ('idle'   , 's' , 1 ), ('walk'   , 's' , range(8)) ],
-			[ ('idle'   , 'e' , 1 ), ('walk'   , 'e' , range(8)) ],
-			[ ('slash'  , 'n' , range(6))  ],
-			[ ('slash'  , 'w' , range(6))  ],
-			[ ('slash'  , 's' , range(6))  ],
-			[ ('slash'  , 'e' , range(6))  ],
-			[ ('shoot'  , 'n' , range(13)) ],
-			[ ('shoot'  , 'w' , range(13)) ],
-			[ ('shoot'  , 's' , range(13)) ],
-			[ ('shoot'  , 'e' , range(13)) ],
-			[ ('hurt'   , 's' , range(6))  ]
-		]),
 	'cast': AnimationLayout.from_animation('cast',7),
 	'thrust': AnimationLayout.from_animation('thrust',8),
 	'walk': AnimationLayout.from_animation('walk',9),
@@ -539,9 +589,9 @@ layouts = {
 	'run': AnimationLayout.from_animation('jump',8),
 	'gun': AnimationLayout.from_animation('gun',9),
 	'demux': AnimationLayout.from_rows([
-			[('cast', 's', 0), ('cast', 'w', 0), ('cast', 'n', 0), ('cast', 'w', 0), ('cast', 'e', 0)]  ,
+			[('cast', 's', 0), ('cast', 'w', 0), ('cast', 'n', 0), ('cast', 'e', 0)]  ,
 			[('hurt' , 's' , 2), ('hurt' , 's' , 3), ('hurt' , 's' , 4), ('hurt' , 's' , 5) ] 
-		])
+		], frame_size=(128, 128))
 }
 
 
@@ -645,7 +695,7 @@ def load_images(image_paths, pattern=IMAGE_FRAME_PATTERN,
 
 	return images
 
-def pack_animations(image_paths, layout, output=None, pattern=IMAGE_FRAME_PATTERN):
+def pack_animations(image_paths, layout, output=None, pattern=IMAGE_FRAME_PATTERN, verbose=False):
 	layout = load_layout(layout)
 
 	images = load_images(image_paths, pattern)
@@ -659,11 +709,11 @@ def pack_animations(image_paths, layout, output=None, pattern=IMAGE_FRAME_PATTER
 def main_pack(args):
 	return pack_animations(args.images, args.layout, args.output, args.pattern)
 
-def unpack_animations(image, layout, pattern=IMAGE_FRAME_PATTERN, output_dir='.'):
+def unpack_animations(image, layout, pattern=IMAGE_FRAME_PATTERN, output_dir='.', verbose=False):
 	img = Image.open(image)
 	layout = load_layout(layout)
 
-	images = layout.unpack_images(img)
+	images = layout.unpack_images(img, verbose=verbose)
 
 	if pattern is not None:
 		mkdirp(output_dir)
@@ -708,12 +758,6 @@ def main_repack(args):
 	return repack_animations(args.input, args.from_layouts, args.to_layouts, args.output_dir, verbose=args.verbose)
 
 
-
-def main_distribute(args):
-	distribute(args.input, args.offsets, args.masks, args.layout, args.output, 
-		verbose=args.verbose)
-
-
 MULTI_FRAME_IMAGE_REGEX = r'(?P<d>(?!bg-)(?!behindbody-)[^\-]+)(?:-(?P<frames>.*))?.png'
 
 distribute_layers = {
@@ -735,6 +779,94 @@ distribute_layers = {
 					'mask_colors':['#ffffff'] },
 }
 
+def match_inputs_to_outputs(inputs, outputs, 
+	error_msg="Must give either one --output path or an equal number of --output paths to groups of --input images."):
+	if isinstance(outputs, str) or outputs is None:
+		outputs = [outputs]
+	elif not isinstance(outputs, collections.abc.Iterable):
+		raise ("outputs must be str, None, or list of same length as image_paths")
+
+	if len(outputs) == 1:
+		outputs = outputs * len(inputs)	
+	elif len(outputs) != len(inputs):
+		raise Exception(error_msg)
+
+	return outputs
+
+def make_frame_templates_per_layer(layout, layers, offsets_image=None, masks_image=None):
+	offsets_image = Image.open(offsets_image) if offsets_image is not None else None
+	masks_image = Image.open(masks_image) if masks_image is not None else None
+
+	layer_templates = {}
+
+	for layer_name, layer_args in layers.items():
+
+		layer_templates[layer_name] = get_frame_templates_from_images(
+			layout = layout,
+			offsets_image = Image.open(layer_args['offsets_image']) if 'offsets_image' in layer_args else offsets_image,
+			masks_image   = Image.open(layer_args['masks_image']) if 'masks_image' in layer_args else masks_image, 
+			mask_colors   = layer_args['mask_colors'] if 'mask_colors' in layer_args else ['#ffffff']
+		)
+	return layer_templates
+
+
+def distribute_repack(image_paths, from_layout, to_layout, offsets_image, masks_image, outputs=None, 
+	layers=distribute_layers, verbose=False): 
+
+	"""unpacks image from `from_layout`, then distributes it and re-packs to `to_layout`"""
+
+	from_layout = load_layout(from_layout)
+	to_layout   = load_layout(to_layout)
+
+	# image_paths: list of dicts; each dict maps layer_name to image path
+	image_groups = listify(image_paths)
+	if not all(isinstance(ig, collections.abc.Mapping) for ig in image_groups):
+		raise Exception("For distribute_repack, every image_group must be a dict of layer_name:image_path")
+
+	if len(outputs) != len(image_paths):
+		raise Exception("Must provide same number of --input and --output images")
+
+	# construct a set of frame templates for each layer
+	layer_templates = make_frame_templates_per_layer(to_layout, layers, offsets_image, masks_image)
+
+	output_imgs = []
+	for image_group_layers, group_output_path in zip(image_groups, outputs):
+		if verbose: print(f"BEGIN GROUP '{image_group_layers}'")
+
+		# image_group_layers is a dict of layer_name : image_path
+		img_layers = []
+		for layer_name, layer_args in layers.items():
+			if verbose: print(f"LAYER '{layer_name}'")
+
+			if layer_name in image_group_layers:
+				# import pdb; pdb.set_trace()
+				images = from_layout.unpack_images(Image.open(image_group_layers[layer_name]))
+
+				# maybe there are no images for this layer; if so, save some loops
+				if len(images) > 0: 
+					
+					images_distributed = distribute_images(images, 
+						templates=layer_templates[layer_name], 
+						positions=to_layout, 
+						verbose=verbose)
+
+					img_layers.append( to_layout.pack_images(images_distributed) )
+					continue
+
+			if verbose: print('- found no images')
+
+		img = composite_images(img_layers)
+
+		if group_output_path is not None:
+			if verbose: print(f"END GROUP: --> {group_output_path}")
+			mkdirpf(group_output_path)
+			img.save(group_output_path)
+		else:
+			if verbose: print(f"END GROUP (no output)")
+
+		output_imgs.append(img)
+
+
 
 def distribute(image_paths, offsets_image, masks_image, layout, output=None, 
 	layers=distribute_layers, verbose=False):
@@ -752,9 +884,6 @@ def distribute(image_paths, offsets_image, masks_image, layout, output=None,
 		if not isinstance(image_group, list):
 			image_group = [image_group]
 
-	# if all(isinstance(el, list) for el in image_paths):
-	# 	pass
-	# else:
 		image_paths_are_dirs = [os.path.isdir(p) for p in image_group]
 
 		# list of directories
@@ -772,69 +901,20 @@ def distribute(image_paths, offsets_image, masks_image, layout, output=None,
 
 	if verbose: print(f"image_groups: {image_groups}\n")
 
-
 	# output: str | list of str | None
-	if isinstance(output, str) or output is None:
-		output = [output]
-	elif not isinstance(output, collections.abc.Iterable):
-		raise ("output must be str, None, or list of same length as image_paths")
-
-	if len(output) == 1:
-		output = output * len(image_groups)
-	# elif len(output) == 0:
-	# 	if verbose: print(f"inferring output file from inputs")
-	# 	for i, image_group in enumerate(image_groups):
-	# 		dirnames = [os.path.dirname(path) for path in image_group]
-	# 		if all_equal(dirnames):
-	# 			output.append(dirnames[0]+'.png')
-	# 		else:
-	# 			raise Exception(f"Cannot automatically figure out an output directory for image group {i}; "
-	# 				"images are not all in the same folder. You should specify output paths explicitly with --output ."
-	# 				f"Image group {i} = {image_group}")
-	# 	assert len(output) == len(image_groups)
-	elif len(output) != len(image_groups):
-		raise Exception("Must give either one --output path or an equal number of --output paths to groups of --input images.")
+	output = match_inputs_to_outputs(image_groups, output)
 
 	if verbose: print(f"output: {output}\n")	
 
-	animations = layout.get_animations()
-	if verbose: print(f"detected animations: {animations}")
-
-
-	offsets_image = Image.open(offsets_image)
-	masks_image = Image.open(masks_image)
-
-	# construct animation templates for each layer; each layer needs a different 
+	# construct a set of frame templates for each layer; each layer needs a different 
 	# template since it may use a different mask image and/or color. offsets could 
 	# technically be different too
-	layer_templates = {}
-	for layer_name, layer_args in layers.items():
-
-		# layer_templates[layer_name] = get_animation_templates(
-		# 	animations, 
-		# 	layout = layout,
-		# 	**dict(
-		# 		offsets_image = offsets_image,
-		# 		masks_image = masks_image, 
-
-		# 		# TODO: call Image.open on layer_args['offsets_image'], layer_args['mask_image']
-		# 		**layer_args
-		# 	))
-
-		layer_templates[layer_name] = get_animation_templates(
-			animations, 
-			layout = layout,
-			offsets_image = Image.open(layer_args['offsets_image']) if 'offsets_image' in layer_args else offsets_image,
-			masks_image   = Image.open(layer_args['masks_image']) if 'masks_image' in layer_args else masks_image, 
-			mask_colors   = layer_args['mask_colors'] if 'mask_colors' in layer_args else ['#ffffff']
-			)
-
+	layer_templates = make_frame_templates_per_layer(layout, layers, offsets_image, masks_image)
 
 	output_imgs = []
 	for image_group, group_output in zip(image_groups, output):
 		if verbose: 
 			print(f"BEGIN GROUP '{image_group}'")
-
 
 		img_layers = []
 		for layer_name, layer_args in layers.items():
@@ -847,20 +927,14 @@ def distribute(image_paths, offsets_image, masks_image, layout, output=None,
 				if verbose: print('- found no images')
 				continue
 
-			animation_images = distribute_images_to_animations(animations, layer_templates[layer_name], images, verbose=verbose)
-			# animation_images = { Animation(name,direction,N) : [ img1, img2, ... imgN], ... }
-			# convert to dict of { AFI : img }, suitable for layout.pack_images
-			images_distributed = {}
-			for animation, imgs in animation_images.items():
-				for afi, img in zip(animation.frames, imgs):
-					images_distributed[afi] = img
+			images_distributed = distribute_images(images, 
+				templates=layer_templates[layer_name], 
+				positions=layout, 
+				verbose=verbose)
 
 			img_layers.append( layout.pack_images(images_distributed) )
-			# assert False
 
-		# import pdb;pdb.set_trace()
 		img = composite_images(img_layers)
-
 
 		if group_output is not None:
 			if verbose: print(f"END GROUP: --> {group_output}")
@@ -877,6 +951,32 @@ def distribute(image_paths, offsets_image, masks_image, layout, output=None,
 	# 	masks_image=Image.open(masks_image))
 	# return img
 	return output_imgs
+
+def main_distribute(args):
+	distribute(args.input, args.offsets, args.masks, args.layout, args.output, 
+		verbose=args.verbose)
+
+def main_distribute_repack(args, default_layer = list(distribute_layers.keys())[-1]):
+	image_groups = []
+	for image_group in args.input:
+		if len(image_group) == 1:
+			image_groups.append( { default_layer : image_group[0] } )
+		else:
+			image_layers = {}
+			for named_image_path in image_group:
+				if named_image_path.count('=') == 1:
+					layer_name, image_path = named_image_path.split('=')
+					image_layers[layer_name] = image_path
+				else:
+					raise Exception("If more than one image is specified per --input group, images must be named by layer by writing LAYER_NAME=IMAGE_PATH.")
+			image_groups.append(image_layers)
+
+
+	distribute_repack(image_groups, args.from_layout, args.to_layout, 
+		args.offsets, 
+		args.masks, 
+		outputs=args.output, 
+		verbose=args.verbose)
 
 
 
