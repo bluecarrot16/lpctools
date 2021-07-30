@@ -74,7 +74,7 @@ class ImagePalette():
 	def __init__(self, colors=[], name=''):
 		# self._colors = [getrgba(c) for c in colors]
 		self._colors = [Color(c) for c in colors]
-		self._colorset = set(self._colors)
+		self._dict = dict((c, i) for i, c in enumerate(self._colors))
 		if not name and hasattr(colors, 'name'):
 			self.name = colors.name
 		else:
@@ -87,7 +87,7 @@ class ImagePalette():
 		return len(self._colors)
 
 	def __contains__(self, rgb):
-		return rgb in self._colorset
+		return rgb in self._dict
 
 	def __getitem__(self, i):
 		return self._colors[i]
@@ -99,14 +99,14 @@ class ImagePalette():
 		r += ")"
 		return r
 
-
+	def index(self, color):
+		return self._dict[color]
 
 	def to_hex(self):
 		return [rgb2hex(*x) for x in self._colors]
 
 	def to_hsv(self):
 		return [x.to_hsv() for x in self._colors]
-
 
 	def reorder(self, ordering):
 		return ImagePalette(np.array(self._colors)[ordering], name=self.name)
@@ -160,8 +160,10 @@ class ImagePalette():
 		# return ImagePalette([colorsys.hsv_to_rgb(*x) for x in hsvs_sorted])
 		return self.sort(param='hue')
 
-	def to_png(self, path=None):
-		# +1 for the source palette
+	def drop_transparent(self):
+		return ImagePalette(c for c in self if c.a != 0)
+
+	def to_image(self, path=None):
 		img = Image.new('RGBA', size=(len(self), 1))
 		pixels = img.load()
 
@@ -172,6 +174,9 @@ class ImagePalette():
 			img.save(path)
 
 		return img
+
+	def to_png(self, path=None):
+		self.to_image(path=path)
 
 	def to_gpl(self, path=None):
 		out = "\n".join([
@@ -200,8 +205,14 @@ def load_palette_json(path, name=''):
 	return ImagePalette(data, name=name)
 
 def load_palette_png(path, name='', squish_transparent=True):
-	img = Image.open(path)
-	bn, _ = os.path.splitext(os.path.basename(path))
+	if isinstance(path, str):
+		img = Image.open(path)
+		bn, _ = os.path.splitext(os.path.basename(path))
+	elif isinstance(path, Image.Image):
+		img = path
+		if hasattr(img, 'filename'):
+			bn, _ = os.path.splitext(os.path.basename(img.filename))
+		else: bn = ''
 
 	# for indexed image, get palette directly in order
 	if img.mode == 'P':
@@ -407,6 +418,9 @@ class ImagePaletteMapping(dict):
 
 		# c1 and c2 represent the source color and the destination color, respectively
 		# shape(c1) == shape(c2) == (4,)
+		# dps = [dest_pal1, dest_pal_2, ...]
+		# len(dps) = n_palettes
+		# len(dest_pal1) = len(self)
 		for (c1, *dps) in arr:
 
 			# get the pixels within `orig` where all 4 channels match the values in c1
@@ -582,8 +596,152 @@ def recolor_map(img, mapping):
 def recolor_index(img, colormap):
 	pass
 
-def coerce_palette(img, palette):
-	pass
+def coerce(img, palette, verbose=False):
+	"""converts the color in `img` to the closest colors in `palette`
+	"""
+
+	alphas = None
+	# todo: deal with keeping track of the alpha
+	if img.mode != 'RGB':
+		if verbose: print(f"Warning: converting {img.filename} to RGB; alpha channel will be lost.")
+
+		if img.mode == 'RGBA':
+			alphas = np.array(img)[:,:,-1]
+
+		img = img.convert('RGB')
+
+	palette_img = palette.to_image().quantize(colors=len(palette), dither=0)
+	img_q =  img.quantize(colors=len(palette), palette=palette_img, dither=0).convert('RGBA')
+	if alphas is not None:
+		img_q_arr = np.array(img_q)
+		img_q_arr[:,:,-1] = alphas
+		img_q = Image.fromarray(img_q_arr)
+	return img_q
+
+
+def coerce_images(images, output_paths, palettes, verbose=False):
+
+	if len(output_paths) == 1:
+		output_paths = output_paths * len(images)
+	elif len(output_paths) != len(images):
+		raise Exception("Must give either one --output argument, or the same number of --output as --input arguments (one per image) \n"
+			f"- Inputs: {images} \n"
+			f"- Outputs: {output_paths} \n")
+
+	for input_path, output_path_fmt in zip(images, output_paths):
+		if verbose: print(f"Reading input image {input_path}...")
+		input_path_basename = os.path.basename(input_path)
+		input_path_basename_sans_ext, _ = os.path.splitext(input_path_basename)
+		input_path_sans_ext, input_path_ext = os.path.splitext(input_path)
+		input_path_ext = input_path_ext.lstrip('.')
+
+		img = Image.open(input_path)
+
+		def save_img(out_img, palette_name):
+			output_path = format_placeholders(output_path_fmt, {
+				'%B': input_path_basename,
+				'%b': input_path_basename_sans_ext,
+				'%i': input_path_sans_ext, 
+				'%e': input_path_ext,
+				'%I': input_path,
+				'%p': palette_name
+			})
+
+			if verbose: print(f"- writing output from palette '{palette_name}' to {output_path}")
+			mkdirpf(output_path)
+			out_img.save(output_path)
+
+		for palette in palettes:
+
+			out_img = coerce(img, palette)
+			save_img(out_img, palette.name)
+
+def main_coerce(args):
+	palettes = load_maybe_named_palettes(args.palettes,names=None, verbose=args.verbose) #dict(parse_named_paths(args.palettes, default_names=True))
+	coerce_images(args.input, args.output, palettes, verbose=args.verbose)
+
+
+
+def increment_shade(img, color_increments, mask, palette, overflow='squish', verbose=False):
+
+	assert mask.size == img.size, "Mask and image must be same size"
+
+	data = np.array(img)
+
+	def increment_color(color, increment):
+		color_i = palette.index(color)
+		new_color_i = color_i + increment
+
+		if new_color_i >= len(palette) or new_color_i < 0:
+			if overflow == 'squish':
+				new_color_i = max(min(new_color_i, len(palette)-1), 0)
+			elif overflow == 'wrap':
+				new_color_i = (new_color_i + len(palette)) % len(palette)
+			else: raise Exception(f"Unrecognized overflow option {overflow}; choose from 'squish' or 'wrap'.")
+		return palette[new_color_i]
+
+	# as we are modifying always compare to original image to avoid waterfall edits
+	orig = data.copy()
+
+	mask = np.array(mask)
+
+	if verbose: print(palette)
+
+	# each (mask_color, increment) pair is essentially defining a new color mapping
+	# from source_pal to (increment_color(c,increment) for c in source_pal)
+	for mask_color, increment in color_increments.items():
+
+		if verbose: print(f"{mask_color} : {increment}")
+
+		# find pixels in `mask` matching `mask_color`
+		mask_color = Color(mask_color).to_array()
+		pixels_to_mask = (mask == mask_color[np.newaxis, np.newaxis, :]).all(axis=-1)
+
+		# definte destination palette
+		dest_palette = [increment_color(c, increment) for c in palette]
+
+		if verbose: print(ImagePalette(dest_palette))
+
+		# recolor image
+		for c1, c2 in zip(palette, dest_palette):
+
+			# but only for pixels in the mask
+			targets = np.logical_and( (orig == c1).all(axis=-1) , pixels_to_mask)
+			data[targets,:] = c2
+
+	return Image.fromarray(data)
+
+def main_increment_shade(args):
+	inputs = args.input
+	outputs = args.output
+
+	if len(inputs) != len(outputs):
+		raise Exception()
+
+
+	#dict(tuple(a.split('=')) for a in args.increments if a.count('=') == 1)
+	color_increments = {} 
+	for a in args.increments:
+		if a.count('=') != 1: raise Exception('Must give --increments as space-separated list of MASK_COLOR=INCREMENT pairs')
+		c,i = a.split('=')
+		color_increments[c] = int(i)
+
+	mask = Image.open(args.mask)
+
+	palette = None
+	if args.palette is not None:
+		palette = load_palette(args.palette).drop_transparent()
+
+	for input_path, output_path in zip(inputs, outputs):
+		input_img = Image.open(input_path)
+		if palette is None:
+			# import pdb; pdb.set_trace()
+			img_palette = load_palette_png(input_path).drop_transparent().sort()
+		else: img_palette = palette
+
+		out_img = increment_shade(input_img, color_increments, mask, img_palette, args.overflow, args.verbose)
+		out_img.save(output_path)
+
 
 def audit_palette(img, palette):
 	pass
@@ -596,12 +754,8 @@ def collapse_recolors(imgs):
 
 
 
+def load_maybe_named_palettes(target_paths, names=None, force_names=True, verbose=False):
 
-def make_mapping(source_path, target_paths, names=None, verbose=False):
-	if verbose: print(f"Source palette: loading from {source_path}")
-	source_pal = load_palette(source_path)
-
-	if verbose: print(f"Target palettes: {target_paths}")
 	if names is None or len(names) == 0:
 		names = [''] * len(target_paths)
 
@@ -618,6 +772,37 @@ def make_mapping(source_path, target_paths, names=None, verbose=False):
 		else: 
 			if verbose: print(f"- loading untitled palette from {path}")
 			dest_pals.append(load_palette(path))
+
+	if force_names:
+		for i, pal in enumerate(dest_pals):
+			if not pal.name:
+				pal.name = str(i)
+	return dest_pals
+
+
+
+def make_mapping(source_path, target_paths, names=None, verbose=False):
+	if verbose: print(f"Source palette: loading from {source_path}")
+	source_pal = load_palette(source_path)
+
+	if verbose: print(f"Target palettes: {target_paths}")
+	dest_pals = load_maybe_named_palettes(target_paths, names, verbose)
+	# if names is None or len(names) == 0:
+	# 	names = [''] * len(target_paths)
+
+	# dest_pals = []
+	# for name, pal_str in zip(names, target_paths):
+	# 	if '=' in pal_str:
+	# 		name, path = pal_str.split('=')
+	# 	else: 
+	# 		path = pal_str
+		
+	# 	if name != '':
+	# 		if verbose: print(f"- loading palette '{name}' from {path}")
+	# 		dest_pals.append(load_palette(path, name=name))
+	# 	else: 
+	# 		if verbose: print(f"- loading untitled palette from {path}")
+	# 		dest_pals.append(load_palette(path))
 
 	colormap = ImagePaletteMapping(source_pal, dest_pals)
 	return colormap
@@ -659,65 +844,6 @@ def concat_mappings(mappings, source=None, targets=None, filter=False, drop=Fals
 
 def main_concat_mappings(args):
 	pass
-
-# def main_recolor(args):
-# 	# mapping = load_palette_map_json(args.mapping)
-
-# 	if args.mapping is not None:
-# 		if args.verbose: 
-# 			if args.palettes is not None:
-# 				print(f"Reading palette mapping: {args.mapping}")
-# 			else:
-# 				print(f"Reading palette mapping: {args.mapping}; renaming the palettes {args.palettes}")
-# 		mapping = load_palette_mapping(args.mapping, names=args.palettes)
-# 	elif args.source is not None and args.target is not None:
-# 		mapping = make_mapping(args.source, args.target, verbose=args.verbose)
-# 	else: 
-# 		raise Exception('Must specify the color mapping, using either --mapping or --from and --to.')
-
-# 	if args.mapping_output is not None:
-# 		if args.verbose: print(f"Writing image representation of palette mapping to {args.mapping_output}")
-# 		mapping_img = mapping.to_image()
-# 		mapping_img.save(args.mapping_output)
-
-
-
-# 	output_paths = args.output
-# 	if len(output_paths) == 1:
-# 		output_paths = output_paths * len(args.input)
-# 	elif len(output_paths) != len(args.input):
-# 		raise Exception("Must give either one --output argument, or the same number of --output as --input arguments (one per image) \n"
-# 			f"- Inputs: {args.input} \n"
-# 			f"- Outputs: {output_paths} \n")
-
-# 	if args.verbose: print(output_paths)
-
-# 	for input_path, output_path_fmt in zip(args.input, output_paths):
-# 		if args.verbose: print(f"Reading input image {input_path}...")
-# 		input_path_basename = os.path.basename(input_path)
-# 		input_path_basename_sans_ext, _ = os.path.splitext(input_path_basename)
-# 		input_path_sans_ext, input_path_ext = os.path.splitext(input_path)
-# 		input_path_ext = input_path_ext.lstrip('.')
-
-# 		img = Image.open(input_path)
-
-# 		out_imgs = mapping.recolor_image(img) #recolor_map(img, mapping)
-
-# 		for (out_img, palette_name) in zip(out_imgs, mapping.names):
-# 			output_path = format_placeholders(output_path_fmt, {
-# 				'%B': input_path_basename,
-# 				'%b': input_path_basename_sans_ext,
-# 				'%i': input_path_sans_ext, 
-# 				'%e': input_path_ext,
-# 				'%I': input_path,
-# 				'%p': palette_name
-# 			})
-
-# 			if args.verbose: print(f"- writing output from palette '{palette_name}' to {output_path}")
-# 			mkdirpf(output_path)
-# 			out_img.save(output_path)
-
-# 		# [out.save(args.output + name + ".png") for (out, name) in zip(outs, mapping.names)]
 
 
 def main_recolor(args):

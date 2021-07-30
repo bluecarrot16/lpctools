@@ -176,6 +176,20 @@ def main(argv=None):
 		parser_recolor.add_argument('--combine', dest='mode', choices=['sum','product'], default='sum', help='how to combine multiple mappings, if specified')
 		parser_recolor.add_argument('--output-mapping-image', dest='mapping_output', help="Write an image representation of the palette mapping to this path, if given")
 
+
+		# coerce subcommand
+		parser_coerce = subparsers.add_parser('coerce', help='Force an image to use colors from a palette',
+			formatter_class=argparse.RawTextHelpFormatter,
+			epilog=''
+			)
+		parser_coerce.add_argument('--input', dest='input', action='extend', nargs='+',
+							help='input filename(s)', required=True)
+
+		parser_coerce.add_argument('--output', dest='output', action='store', nargs='+', #action=ExtendActionOverwriteDefault, nargs='+',
+							default=['%i/%p.%e'])
+		parser_coerce.add_argument('--palette', dest='palettes', default=['universal'], nargs='+')
+
+
 		# convertpalette subcommand
 		parser_palette = subparsers.add_parser('convert-palette', help='Convert a color palette between formats',
 			description='Convert a color palette between formats',
@@ -218,6 +232,28 @@ def main(argv=None):
 		parser_mapping.add_argument('--output', help='Filename to save the output mapping; format will be inferred from extension')
 
 
+
+
+
+		parser_increment_shade = subparsers.add_parser('increment-shade', help='Increment each pixel matching a mask to a different color in the palette',
+			description=''
+			# formatter_class=argparse.RawTextHelpFormatter,
+			# epilog=dedent(f"""\
+			# 	{palette_help}
+			# 	""")
+			)
+		parser_increment_shade.add_argument('--input', dest='input', action='extend', nargs='+',
+							help='input filename(s)', required=True)
+
+		parser_increment_shade.add_argument('--output', dest='output', action='extend', nargs='+', #action=ExtendActionOverwriteDefault, nargs='+',
+							required=True,
+							help='output filename(s)')
+
+		parser_increment_shade.add_argument('--palette')
+		parser_increment_shade.add_argument('--increments', nargs='+', required=True, metavar=('MASK_COLOR_1=INCREMENT_1','MASK_COLOR_2=INCREMENT_2'))
+		parser_increment_shade.add_argument('--overflow', choices=('squish','wrap'), default='squish')
+		parser_increment_shade.add_argument('--mask',required=True)
+
 		# parser_concat_mappings = subparsers.add_parser('concat-mappings', help='Concatenates one or more mappings',
 		# 	formatter_class=argparse.RawTextHelpFormatter
 		# 	)	
@@ -233,12 +269,14 @@ def main(argv=None):
 
 		args = parser.parse_args(argv, ns)
 
-		from .recolor import main_recolor, main_convertpalette, main_convertmapping, main_create_mapping, main_concat_mappings
+		from .recolor import main_recolor, main_convertpalette, main_convertmapping, main_create_mapping, main_concat_mappings, main_coerce, main_increment_shade
 		sub_commands = {
 			'recolor': main_recolor,
 			'convert-palette': main_convertpalette,
 			'convert-mapping': main_convertmapping,
-			'create-mapping': main_create_mapping
+			'create-mapping': main_create_mapping,
+			'coerce': main_coerce,
+			'increment-shade': main_increment_shade
 			# ,'concat-mappings': main_concat_mappings
 		}
 
