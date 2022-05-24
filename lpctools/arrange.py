@@ -828,7 +828,75 @@ def parse_mirror(arg_mirror):
 
 
 def main_repack(args):
-	return repack_animations(args.input, args.from_layouts, args.to_layouts, args.output_dir, verbose=args.verbose)
+	
+	return repack_animations(args.input, args.from_layouts, args.to_layouts, 
+		output_dir=args.output_dir, output_pattern=args.output_pattern,
+		mirror=parse_mirror(args.mirror), verbose=args.verbose)
+
+
+def separate(images, from_layouts, verbose=False, **kwargs):
+	animations = set()
+	for from_layout in from_layouts:
+		from_layout = load_layout(from_layout)
+		animations.update(from_layout.get_animations())
+	names = [a.name for a in animations]
+	if verbose:
+		print(f"Detected animations {names}")
+
+	# to_layouts = [load_layout(name) for name in names]
+	to_layouts = names
+
+	return repack_animations(images, from_layouts, to_layouts, verbose=verbose, **kwargs)
+
+
+def main_separate(args):
+	separate(args.input, args.from_layouts, 
+		output_dir=args.output_dir, output_pattern=args.output_pattern, 
+		mirror=parse_mirror(args.mirror), verbose=args.verbose)
+
+def combine(inputs, layout, output=None, verbose=False):
+	unpacked_images = {}
+
+	def guess_layout(img_path):
+		basename, ext = os.path.splitext(os.path.basename(img_path))
+		basename = basename.lower()
+		if basename in layouts:
+			return basename
+		elif basename in animation_synonyms:
+			return animation_synonyms[basename]
+		else:
+			return None
+
+	def guess_layout_and_load_img(img_path):
+		from_layout = guess_layout(img_path)
+		if from_layout is not None:
+			if verbose:
+				print(f"{img_path} -> layout {from_layout}")
+			img = Image.open(img_path)
+			from_layout = load_layout(from_layout)
+			unpacked_images.update( from_layout.unpack_images(img) )
+
+	for p in inputs:
+		if os.path.isdir(p):
+			for img_path in glob(str(Path(p) / '*.png')):
+				guess_layout_and_load_img(img_path)
+
+		else:
+			guess_layout_and_load_img(p)
+
+
+	to_layout = load_layout(layout)
+	img = to_layout.pack_images(unpacked_images)
+
+	if output is not None:
+		img.save(output)
+
+	return img
+
+
+def main_combine(args):
+	combine(args.input, args.layout, args.output)
+
 
 
 MULTI_FRAME_IMAGE_REGEX = r'(?P<d>(?!bg-)(?!behindbody-)[^\-]+)(?:-(?P<frames>.*))?.png'

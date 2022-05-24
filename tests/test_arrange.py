@@ -24,6 +24,27 @@ class TestLayout():
 			from_layouts='universal', to_layouts=['universal'], output_pattern=outfile, mirror=('w','e'))
 		assert filecmp.cmp(outfile,'tests/arrange_files/male-mirrored.png')
 
+
+	def test_separate(self, tmpdir):
+		import lpctools.arrange
+
+		lpctools.arrange.separate(['tests/arrange_files/packed-evert.png'],
+			from_layouts=['evert'],
+			output_dir=str(tmpdir))
+
+		assert_dirs_are_same(tmpdir, 'tests/arrange_files/separated')
+
+
+	def test_combine(self, tmpdir):
+		import lpctools.arrange
+
+		lpctools.arrange.combine(['./tests/arrange_files/repacked'],
+			layout='evert',
+			output=str(tmpdir / 'repacked.png'))
+
+		assert filecmp.cmp(str(tmpdir / 'repacked.png'), 'tests/arrange_files/combined.png')
+
+
 	def test_unpack(self, tmpdir):
 		tmpdir = str(tmpdir)
 
@@ -262,5 +283,4 @@ class TestDistribute():
 			f"-v arrange distribute --input tests/arrange_files/shield/crusader/ --output {outfile} --offsets tests/arrange_files/shield/reference_points_male.png --mask tests/arrange_files/shield/masks_male.png"
 			)
 		)
-
 		assert filecmp.cmp(outfile,'tests/arrange_files/shield/crusader.png')
