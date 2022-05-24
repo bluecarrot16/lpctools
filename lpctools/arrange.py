@@ -679,6 +679,9 @@ IMAGE_FRAME_PATTERN = '%n-%d-%f.png'
 def load_images(image_paths, pattern=IMAGE_FRAME_PATTERN, 
 	frame_pattern=re.compile(r'(?P<n>[^\dABCDEF]+)(?P<f>[\dABCDEF]+)?'), 
 	sep='-', verbose=False):
+	"""
+	loads images from a set of directories and produces a dict mapping `AnimationFrameID`s to `PIL.Image`s
+	"""
 	
 	if not isinstance(pattern, re.Pattern):
 		regex = re.compile(
@@ -732,6 +735,21 @@ def load_images(image_paths, pattern=IMAGE_FRAME_PATTERN,
 
 	return images
 
+def mirror_images(images, from_direction='e', to_direction='w', orientation='h', verbose=False):
+	"""
+	Identifies image frames with direction `from_direction` and mirrors them with the given `orientation` 
+	to produce image frames in `to_direction`. Generally this is used to mirror east-facing images
+	to make west-facing images.
+	"""
+	new_images = images.copy()
+
+	for afi, image in images.items():
+		if afi.direction == from_direction:
+			new_afi = AnimationFrameID(afi.name, to_direction, afi.frame)
+			if verbose: print(f"{afi} --({orientation})-> {new_afi}")
+			new_images[new_afi] = image.transpose(Image.FLIP_LEFT_RIGHT if orientation == 'h' else PIL.Image.Transpose.FLIP_TOP_BOTTOM)
+	return new_images
+
 def pack_animations(image_paths, layout, output=None, pattern=IMAGE_FRAME_PATTERN, verbose=False):
 	layout = load_layout(layout)
 
@@ -763,7 +781,7 @@ def unpack_animations(image, layout, pattern=IMAGE_FRAME_PATTERN, output_dir='.'
 def main_unpack(args):
 	return unpack_animations(args.input, args.layout, args.pattern, args.output_dir, verbose=args.verbose)
 
-def repack_animations(images, from_layouts, to_layouts, output_dir='.', verbose=False):
+def repack_animations(images, from_layouts, to_layouts, output_dir='.', output_pattern=None, mirror=False, verbose=False):
 	images = listify(images)
 
 	from_layouts = listify(from_layouts)
@@ -783,13 +801,31 @@ def repack_animations(images, from_layouts, to_layouts, output_dir='.', verbose=
 		unpacked_images.update( from_layout.unpack_images(img) )
 		if verbose: print(f"= {len(unpacked_images)} images total")
 
+	if mirror:
+		orientation = {'e': 'h', 'w':'h', 'n':'v', 's':'v'}[mirror[1]]
+		unpacked_images = mirror_images(unpacked_images, 
+			from_direction=mirror[0], to_direction=mirror[1], orientation=orientation, verbose=verbose)
+
 	if verbose: print("Writing to layouts: {to_layouts}")
+
+	if output_pattern is None:
+		output_pattern = str(Path(output_dir) / "%l.png")
+
 	for layout_name in to_layouts:
 		layout = load_layout(layout_name)
 		new_img = layout.pack_images(unpacked_images)
-		outfile = mkdirpf(output_dir, layout_name + '.png')
+		outfile = mkdirpf(format_placeholders(output_pattern, {'%l':layout_name}))
 		if verbose: print(f"- Saved {layout_name} -> {outfile}")
 		new_img.save(outfile)
+
+
+def parse_mirror(arg_mirror):
+	if arg_mirror:
+		if arg_mirror == True or arg_mirror == 'true':
+			mirror = ('e','w')
+		else:
+			mirror = tuple(arg_mirror.split(':'))
+
 
 def main_repack(args):
 	return repack_animations(args.input, args.from_layouts, args.to_layouts, args.output_dir, verbose=args.verbose)

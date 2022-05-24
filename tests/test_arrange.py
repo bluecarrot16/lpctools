@@ -18,6 +18,12 @@ class TestLayout():
 
 		assert filecmp.cmp(tmpdir / 'universal.png', 'tests/arrange_files/packed-universal.png')
 
+
+		outfile = str(tmpdir / "male-mirrored.png")
+		repack_animations('tests/arrange_files/male-w-only.png', 
+			from_layouts='universal', to_layouts=['universal'], output_pattern=outfile, mirror=('w','e'))
+		assert filecmp.cmp(outfile,'tests/arrange_files/male-mirrored.png')
+
 	def test_unpack(self, tmpdir):
 		tmpdir = str(tmpdir)
 

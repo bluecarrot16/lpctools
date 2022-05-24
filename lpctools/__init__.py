@@ -377,6 +377,11 @@ def main(argv=None):
 
 			Will create one image per TO layout.
 
+			If --mirror is given, the value should be two direction letters ('n', 'e', 's', 
+			or 'w') separated by a colon, e.g. `--mirror e:w`
+			In this case, east-facing frames will be mirrored horizontally and used to replace 
+			west-facing images. `--mirror w:e` will do the opposite. 
+			
 			{layouts_help}
 			""")
 			)
@@ -384,9 +389,14 @@ def main(argv=None):
 		parser_repack.add_argument('--input',required=True, help='Packed image', action='extend', nargs='+')
 		parser_repack.add_argument('--from', dest='from_layouts', default=['universal'], help='Layout(s) of the original spritesheet images', nargs='+')
 		parser_repack.add_argument('--to', dest='to_layouts', default=['cast','thrust','walk','slash','shoot','hurt'], nargs='+', help='New layout(s) to create')
+		parser_repack.add_argument('--mirror', dest='mirror', default=False, help='w:e to generate east frames by mirroring west frames, e:w for the opposite')
+		parser_repack.add_argument('--output',dest='output_pattern', default=None, 
+			help='Pattern for how to name output files. Use %l to indicate the layout name. Use this or --output_dir, not both.')
 		parser_repack.add_argument('--output-dir',dest='output_dir', default='.', 
-			help='Directory where the repacked spritesheet(s) should be placed (default: %(default)s)')
+			help='Directory where the repacked spritesheet(s) should be placed; each output file will be named OUTPUT_DIR/TO.png (default: %(default)s)')
 
+		# * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *  
+		# distribute subcommand
 		layers_help = '\n'.join(wrap_fill(f"- {layer_name} : {layer['help']}", width=79) for layer_name, layer in distribute_layers.items() )
 
 		mask_colors_help = '\n'.join(
