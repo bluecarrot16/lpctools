@@ -154,29 +154,6 @@ def get_frame_templates_from_images(layout, offsets_image=None, masks_image=None
 	return templates
 
 
-# def distribute_images_to_animations(animations, templates, images, verbose=False):
-# 	"""take some set of base images and expand them to create a full set of animations
-
-# 	animations: iterable of Animation
-# 	templates: iterable of (AnimationTemplate | None)
-# 	images: dict of (animation_name | None, direction | None, frame | None) : PIL.Image
-
-# 	returns: dict of Animation : (list of images)
-# 	"""
-
-# 	output = {}
-# 	for animation, template in zip(animations, templates):
-
-# 		# identify the best image for each frame
-# 		animation_images = [pick_image(afi, images, verbose=verbose) for afi in animation.frames]
-
-# 		# apply offset(s) and masking
-# 		if template is not None:
-# 			output[animation] = [template.apply(img) for img in animation_images]
-# 		else: 
-# 			output[animation] = animation_images
-
-# 	return output
 
 def distribute_images(images, templates, positions, verbose=False):
 	""" for each `afi` in `positions`: , picks a suitable image from `images` and applies `templates[afi]`;
@@ -209,21 +186,6 @@ def distribute_images_via_layout(images, layout, offsets_image, masks_image, ver
 	return layout.pack_images(images_distributed)
 
 
-# def distribute_images_via_layout(images, layout, offsets_image, masks_image, animations=None, verbose=False):
-# 	if animations is None: 
-# 		animations = layout.get_animations()
-# 	templates = get_animation_templates(animations, offsets_image = offsets_image, masks_image = masks_image, layout = layout)
-
-# 	# { Animation(name,direction,N) : [ img1, img2, ... imgN], ... }
-# 	animation_images = distribute_images_to_animations(animations, templates, images, verbose=verbose)
-# 	images_distributed = {}
-# 	for animation, imgs in animation_images.items():
-# 		for afi, img in zip(animation.frames, imgs):
-# 			images_distributed[afi] = img
-
-# 	# assert False
-# 	return layout.pack_images(images_distributed)
-
 
 
 
@@ -254,22 +216,6 @@ animation_synonyms = {
 	'swing':'slash'
 }
 
-# class AnimationLayer():
-
-# 	def __init__(self, template, images):
-# 		pass
-
-
-# class Animation():
-# 	def __init__(self, layers)
-# 		pass
-
-# class AnimationsSheet():
-# 	def __init__(self, animations):
-# 		pass
-
-
-# _AnimationFrameID = 
 
 class AnimationFrameID(collections.namedtuple('_AnimationFrameID',['name','direction','frame'])):
 	__slots__ = ()
@@ -980,72 +926,8 @@ def main_distribute_repack(args, default_layer = list(distribute_layers.keys())[
 
 
 
-# def distribute(image_paths, offsets_image, masks_image, layout, output=None, 
-# 	pattern=re.compile(r'(?P<d>[^\-]+)(?:-(?P<n>\D+)(?P<f>\d+)?)?.png')
-# 	):
-
-# 	layout = load_layout(layout)
-
-# 	# image_paths: (list of images) | (list of dirs) | (list of lists of images)
-# 	# list of lists
-# 	if all(isinstance(el, list) for el in image_paths):
-# 		pass
-# 	else:
-# 		image_paths_are_dirs = [os.path.isdir(p) for p in image_paths]
-
-# 		# list of directories
-# 		if all(image_paths_are_dirs):
-# 			image_paths = [ glob(os.path.join(d,'*.png')) for d in image_paths ]
-		
-# 		# mixture of images and directories (prohibited due to ambiguity)
-# 		elif any(image_paths_are_dirs):
-# 			raise NotImplementedError("image_paths must be either a list of lists, a list of directories, or a list of images; cannot mix directories and images.")
-		
-# 		# list of images
-# 		else:
-# 			image_paths = [ image_paths ]
-
-# 	# output: str | list of str | None
-# 	if isinstance(output, str) or output is None:
-# 		output = [output]
-# 	elif not isinstance(output, collections.abc.Iterable):
-# 		raise ("output must be str, None, or list of same length as image_paths")
-# 	if len(output) == 1:
-# 		output = output * len(image_paths)
-# 	elif len(output) != len(image_paths):
-# 		raise Exception("Must give either one --output path or an equal number of --output paths to groups of images (--images).")
-
-# 	animations = layout.get_animations()
-# 	templates = get_animation_templates(animations, 
-# 		offsets_image = Image.open(offsets_image), 
-# 		masks_image = Image.open(masks_image), 
-# 		layout = layout)
-
-# 	output_imgs = []
-# 	for image_group, group_output in zip(image_paths, output):
-# 		images = load_images(image_group, pattern)
-
-# 		# { Animation(name,direction,N) : [ img1, img2, ... imgN], ... }
-# 		animation_images = distribute_images_to_animations(animations, templates, images)
-# 		images_distributed = {}
-# 		for animation, imgs in animation_images.items():
-# 			for afi, img in zip(animation.frames, imgs):
-# 				images_distributed[afi] = img
-
-# 		# assert False
-# 		img = layout.pack_images(images_distributed)
-
-# 		if group_output is not None:
-# 			mkdirpf(group_output)
-# 			img.save(group_output)
-
-# 		output_imgs.append(img)
 
 
-# 	# img = distribute_images_via_layout(images, layout, 
-# 	# 	offsets_image=Image.open(offsets_image), 
-# 	# 	masks_image=Image.open(masks_image))
-# 	# return img
-# 	return output_imgs
+
 
 
