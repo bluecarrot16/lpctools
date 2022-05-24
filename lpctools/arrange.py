@@ -1,6 +1,7 @@
 import os
 import os.path
 from glob import glob
+from pathlib import Path
 import itertools
 
 from PIL import Image
@@ -33,6 +34,9 @@ class ImageCollection(dict):
 		pass
 
 class FrameTemplate():
+	"""
+	A FrameTemplate is a combination of a mask and offset coordinates
+	"""
 
 	# number of frames
 	# frame size
@@ -237,6 +241,9 @@ class AnimationFrameID(collections.namedtuple('_AnimationFrameID',['name','direc
 			'%f':self.frame
 		})
 
+	def to_dict(self):
+		return dict(name=self.name, direction=self.direction, frame=int(self.frame))
+
 	@staticmethod
 	def from_dict(d):
 
@@ -246,7 +253,7 @@ class AnimationFrameID(collections.namedtuple('_AnimationFrameID',['name','direc
 			d['frame']     if 'frame'     in d else d['f'] if 'f' in d else None)
 
 
-class AnimationLayout():
+class SpritesheetLayout():
 	def __init__(self, animation_positions, size=None, frame_size=(64,64)):
 		assert isinstance(animation_positions, collections.abc.Mapping)
 
@@ -261,15 +268,15 @@ class AnimationLayout():
 
 		# if size is given, check that no elements exceed the provided bounds
 		if size is not None:
-			size = np.array(size)
-			if _size >= size:
+			size = np.array(size, dtype=int)
+			if any(_size > size):
 				elems_out_of_range = [afi for afi, pos in self.items() if (np.array(pos) > size).any()]
 				raise Exception(f"The following Animation Frames are out of the indicated size of {size}: {elems_out_of_range}")
 		else:
 			# otherwise, use calculated size
 			size = _size
-		self.size = tuple(size)
-		self.frame_size = frame_size
+		self.size = tuple(int(s) for s in size)
+		self.frame_size = tuple(frame_size)
 
 	def __eq__(self, other):
 		return (self.frame_size == other.frame_size) and (self.positions == other.positions)
@@ -366,6 +373,49 @@ class AnimationLayout():
 			out[pos] = afi
 		return out
 
+	def to_dict(self):
+		arr = self.to_array()
+		out = []
+
+		for y in range(arr.shape[1]):
+			out.append([])
+			for x in range(arr.shape[0]):
+				c = None if arr[x,y] is None else arr[x,y].to_dict()
+				out[y].append(c)
+		return dict(
+			frame_size=tuple(int(c) for c in self.frame_size), 
+			size=tuple(int (c) for c in self.size), rows=out)
+
+	def to_json(self, path):
+		import json
+		with open(path, 'w') as fp:
+			json.dump(self.to_dict(), fp)
+
+	def to_image(self, path=None):
+		from PIL import ImageDraw, ImageFont
+		anims = self.get_animations()
+		colors = dict(zip([a.name for a in anims], get_color_hue_range(len(anims))))
+
+		img = Image.new(mode='RGBA',size=self.pixel_size,color=COLOR_TRANSPARENT)
+		draw = ImageDraw.Draw(img)
+
+		for afi, pos in self.positions.items():
+			px_pos = self.get_pixel_pos(afi)
+			px_box = (px_pos,(px_pos[0]+self.frame_size[0]-1, px_pos[1]+self.frame_size[1]-1))
+			color = colors[afi.name]
+			text=f"{afi.name}\n{afi.direction}\n#{afi.frame}"
+			font = ImageFont.load_default()
+
+			draw.rectangle(px_box, outline=color)
+			# bbox = draw.multiline_textsize(text, font=font)
+			draw.text((px_pos[0]+2, px_pos[1]+1), text=text, fill=color, font=font, spacing=2)
+
+			# draw.multiline_text(, test=text, fill=color)
+
+		if path is not None:
+			img.save(path)
+		return img
+
 	@staticmethod
 	def from_array(arr, **kwargs):
 		out = {}
@@ -375,11 +425,17 @@ class AnimationLayout():
 					# follow image convention, where (x = col, y = row)
 					# out[afi] = (j, i) #(i, j)
 					out[(j, i)] = afi  #(i, j)
-		return AnimationLayout(out, **kwargs)
+		return SpritesheetLayout(out, **kwargs)
 
 	@staticmethod
 	def from_rows(rows, **kwargs):
-		"""each row is a list of tuple (animation, direction, nframes); each row will be populated with [(animation, direction, 0), (animation, direction, 1), ... (animation, direction, nframes-1)] """
+		"""each row is a list of tuples or dicts or `null`s; 
+		each tuple is either (animation, direction, frame : int) or (animation, direction, frames : iterable) : ); 
+		equivalently, a dict of {'name', 'direction', 'frame'} or {'name', 'direction', 'frames'}. 
+		where ``frames`` is given, the row will then be populated at that position with
+			[AnimationFrameID(animation, direction, 0), AnimationFrameID(animation, direction, 1), ... AnimationFrameID(animation, direction, nframes-1)] 
+
+		"""
 		
 		out_rows = []
 		for row in rows:
@@ -389,7 +445,26 @@ class AnimationLayout():
 			out_row = []
 			for c in row:
 				if c is not None:
+					if isinstance(c, dict):
+						if 'frames' in c:
+							if isintance(c['frames'], 'str'):
+								_frame = c['frames']
+							else:
+								_frame = range(c['frames'])
+						else:
+							_frame = c.get('frame', None)
+						c = (c.get('name',None), c.get('direction',None), _frame)
+
 					assert len(c) == 3, "rows must be a list of lists of (3-length tuples) or None"
+					if isinstance(c[2], str):
+						c2 = c[2].split(':')
+						if len(c) > 1:
+							c = (c[0],c[1]) + (range(*c2),)
+						else: 
+							raise Exception(f"Unknown entry {c}; expected a 3-length tuple of [animation_name, direction, frame(s)]. "
+								"Any value can be `null`/`None`, but all must be included. Frame(s) can be a single number, indicating a single frame, "
+								"A list of frames, or a string indicating a range of frames. If `frame(s)` is a string, "
+								"and must be given as `{start_frame}:{end_frame+1}`, e.g. `'0:5'` = [0, 1, 2, 3, 4].")
 
 					if isinstance(c[2], collections.abc.Iterable):
 						out_row.extend([ (c[0], c[1], i) for i in c[2] ])
@@ -398,20 +473,20 @@ class AnimationLayout():
 				else: out_row
 			out_rows.append(out_row)
 
-		return AnimationLayout.from_array(out_rows, **kwargs)
+		return SpritesheetLayout.from_array(out_rows, **kwargs)
 
 
 	@staticmethod
 	def from_animation(name, nframes, directions=['n','w','s','e'], **kwargs):
-		return AnimationLayout.from_rows( [(name, direction, range(nframes)) for direction in directions] , **kwargs)
+		return SpritesheetLayout.from_rows( [(name, direction, range(nframes)) for direction in directions] , **kwargs)
 
 	# def from_animations(animations):
-		# return AnimationLayout.from_rows( [(name, direction, range(nframes)) for direction in directions] )
+		# return SpritesheetLayout.from_rows( [(name, direction, range(nframes)) for direction in directions] )
 		
 
 
 layouts = {
-	'universal': AnimationLayout.from_rows([
+	'universal': SpritesheetLayout.from_rows([
 			('cast'   , 'n' , range(7))  ,
 			('cast'   , 'w' , range(7))  ,
 			('cast'   , 's' , range(7))  ,
@@ -434,7 +509,7 @@ layouts = {
 			('shoot'  , 'e' , range(13)) ,
 			('hurt'   , 's' , range(6))
 		]),
-		'universal-idle': AnimationLayout.from_rows([
+		'universal-idle': SpritesheetLayout.from_rows([
 			[ ('cast'   , 'n' , range(7)) ] ,
 			[ ('cast'   , 'w' , range(7)) ] ,
 			[ ('cast'   , 's' , range(7)) ] ,
@@ -457,7 +532,7 @@ layouts = {
 			[ ('shoot'  , 'e' , range(13)) ],
 			[ ('hurt'   , 's' , range(6))  ]
 		]),
-	'evert': AnimationLayout.from_rows([
+	'evert': SpritesheetLayout.from_rows([
 			[('cast'   , 'n' , range(7))],
 			[('cast'   , 'w' , range(7))],
 			[('cast'   , 's' , range(7))],
@@ -481,7 +556,7 @@ layouts = {
 			[('shoot'  , 'e' , range(13)), ('jump'  , 'e' , range(5))],
 			[('hurt'   , 's' , range(6))]
 		]),
-		'basxto': AnimationLayout.from_rows([
+		'basxto': SpritesheetLayout.from_rows([
 			('hurt'   , 's' , range(6))  ,
 			('walk'   , 'n' , range(9))  ,
 			('walk'   , 'w' , range(9))  ,
@@ -520,69 +595,85 @@ layouts = {
 			('run' , 's' , range(8)), 
 			('run' , 'e' , range(8))
 		]),
-	'cast': AnimationLayout.from_animation('cast',7),
-	'thrust': AnimationLayout.from_animation('thrust',8),
-	'walk': AnimationLayout.from_animation('walk',9),
-	'walk-noidle': AnimationLayout.from_animation('walk',8),
-	'idle': AnimationLayout.from_animation('idle',1),
-	'slash': AnimationLayout.from_animation('slash',6),
-	'shoot': AnimationLayout.from_animation('shoot',13),
-	'hurt': AnimationLayout.from_animation('hurt',6,['s']),
-	'grab': AnimationLayout.from_animation('grab',3),
-	'push': AnimationLayout.from_animation('push',9),
-	'carry': AnimationLayout.from_animation('carry',9),
-	'jump': AnimationLayout.from_animation('jump',5),
-	'run': AnimationLayout.from_animation('jump',8),
-	'gun': AnimationLayout.from_animation('gun',9),
-	'demux': AnimationLayout.from_rows([
+	'cast': SpritesheetLayout.from_animation('cast',7),
+	'thrust': SpritesheetLayout.from_animation('thrust',8),
+	'walk': SpritesheetLayout.from_animation('walk',9),
+	'walk-noidle': SpritesheetLayout.from_animation('walk',8),
+	'idle': SpritesheetLayout.from_animation('idle',1),
+	'slash': SpritesheetLayout.from_animation('slash',6),
+	'shoot': SpritesheetLayout.from_animation('shoot',13),
+	'hurt': SpritesheetLayout.from_animation('hurt',6,['s']),
+	'grab': SpritesheetLayout.from_animation('grab',3),
+	'push': SpritesheetLayout.from_animation('push',9),
+	'carry': SpritesheetLayout.from_animation('carry',9),
+	'jump': SpritesheetLayout.from_animation('jump',5),
+	'run': SpritesheetLayout.from_animation('jump',8),
+	'gun': SpritesheetLayout.from_animation('gun',9),
+	'demux': SpritesheetLayout.from_rows([
 			[('cast', 's', 0), ('cast', 'w', 0), ('cast', 'n', 0), ('cast', 'e', 0)]  ,
 			[('hurt' , 's' , 2), ('hurt' , 's' , 3), ('hurt' , 's' , 4), ('hurt' , 's' , 5) ] 
-		], frame_size=(128, 128))
+		], frame_size=(128, 128)),
+	'heads': SpritesheetLayout.from_rows([
+			[(None,'n',None)],
+			[(None,'w',None),('cast','w',1),('cast','w',2)],
+			[(None,'s',None),('cast','s',1),('cast','s',2)],
+			[(None,'e',None),('cast','e',1),('cast','e',2)],
+			[('hurt','s',range(3))],
+			[('hurt','s',range(3,6))],
+		])
 }
 
 
-def load_layout(layout):
-	if isinstance(layout, AnimationLayout):
+def load_layout(layout, **kwargs):
+	"""
+	Accepts a name for an existing layout or a file path to a JSON layout file and creates a SpritesheetLayout object.
+
+	layout: str or SpritesheetLayout
+
+	"""
+	if isinstance(layout, SpritesheetLayout):
 		return layout
 
 	if layout in layouts:
 		return layouts[layout]
 	else:
-		raise Exception(f"Unknown layout {layout}")
+		path = layout
+		basename, ext = os.path.splitext(path)
+
+		layout_loaders = {
+			'.json': load_layout_json
+		}
+
+		if ext in layout_loaders:
+			return layout_loaders[ext](path, **kwargs)
+
+		raise Exception(f"{layout} not a built-in layout or path to a layout folder I know how to open. "
+			f"Layout file formats: {layout_loaders.keys()}; built-in layouts: {layouts.keys()}")
+
+def load_layout_json(path):
+	import json
+	if isinstance(path, str):
+		with open(path) as f:
+			data = json.load(f)
+
+		return SpritesheetLayout.from_rows(**data)
+
+
+def save_layout(layout, path, **kwargs):
+	basename, ext = os.path.splitext(path)
+	layout_savers = {
+		'.png': lambda path, **kwargs: layout.to_image(path, **kwargs),
+		'.json': lambda path, **kwargs: layout.to_json(path, **kwargs),
+	}
+
+	if ext in layout_savers:
+		layout_savers[ext](path, **kwargs)
+	else:
+		raise Exception(f'Do not know how to save a layout to a {ext} file. Possible extensions: {layout_savers.keys()}')
+
 
 
 IMAGE_FRAME_PATTERN = '%n-%d-%f.png'
-
-# def load_images(image_paths, pattern=IMAGE_FRAME_PATTERN, verbose=False):
-# 	if not isinstance(pattern, re.Pattern):
-# 		regex = re.compile(
-# 			pattern_to_regex(pattern, placeholders={'f':r'\d+','d':r'\D+'})
-# 		)
-# 	else: 
-# 		regex = pattern
-# 		pattern = pattern.pattern
-# 	if verbose: print(f"Searching pattern '{pattern}'")
-
-# 	# if the pattern contains a path separator, apply the pattern to the full image path
-# 	# otherwise, only apply the basename
-# 	if not os.path.sep in pattern:
-# 		image_names = (os.path.basename(f) for f in image_paths)
-# 	else: image_names = image_paths
-
-# 	# images = {AnimationFrameID.from_dict(regex.match(name).groupdict()) : Image.open(path) for name, path in zip(image_names, image_paths)}
-# 	images = {}
-# 	for name, path in zip(image_names, image_paths):
-# 		m = regex.match(name)
-# 		if m is None: 
-# 			if verbose: print(f"- skip  {path} which does not fit pattern...")
-# 			continue
-
-# 		afi = AnimationFrameID.from_dict(m.groupdict())
-# 		images[afi] = Image.open(path)
-# 		if verbose:
-# 			print(f"- FOUND {path} --> {afi}")
-
-# 	return images
 
 
 def load_images(image_paths, pattern=IMAGE_FRAME_PATTERN, 
@@ -927,6 +1018,12 @@ def main_distribute_repack(args, default_layer = list(distribute_layers.keys())[
 
 
 
+def convert_layout(input, output, verbose=True):
+	layout = load_layout(input)
+	save_layout(layout, output)
+
+def main_convert_layout(args):
+	return convert_layout(args.input, args.output, verbose=args.verbose)
 
 
 

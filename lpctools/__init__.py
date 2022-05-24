@@ -492,13 +492,73 @@ def main(argv=None):
 			help='Path to image specifying the cutouts/masks for each layer')
 
 
+		# * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *  
+		# convert-layout
+		parser_convertlayout = subparsers.add_parser('convert-layout', help='Converts layout to a different format',
+			formatter_class=argparse.RawTextHelpFormatter,
+			epilog=dedent(f"""\
+			INPUT can be a name of an existing layout, or a layout file in JSON format. The 
+			JSON file should be a single object with the following keys:
+
+			- 'name': name of the layout (optional)
+			- 'frame_size': 2-element array giving the size of each animation frame, 
+			   in pixels
+			- 'size' 2-element array giving the size in frames [# columns, # rows] of the 
+			   layout (optional; if omitted, will be calculated based on the number of rows 
+			   and the length of the longest row)
+			- 'rows': array of arrays giving the layout. Each element should be an array of layout frames, representing 
+				a single row of the layout.  
+
+				Each element within a row should be either `null` (representing blank space) 
+				or an entry representing one or more animation frames. 
+				
+				An entry representing an animation frame or frame(s) should be an object 
+				with the following keys:
+				- 'name': name of the animation (e.g. "thrust", "walk", "slash", etc.). 
+				   If `null`, this entry will represent a default frame for all animations 
+				   facing a given direction
+				- 'direction': one-letter code indicating the cardinal direction 
+				   ('n' = north, 'e' = east, etc.). 
+				- 'frame': if given, this entry will represent a single frame of animation,
+				   at the specified index (where the first frame is 0).
+				- 'frames': if an integer is given, this entry will represent the given 
+				   number of frames of animation. If a string, this entry can represent a 
+				   half-open interval of frames, separated by a colon. For example: '3:7'
+				   indicates that frames 3, 4, 5, and 6 should be placed sequentially at
+				   this position. It is also possible to place frames in reverse order, for 
+				   example '9:5:-1' indicates frames 9, 8, 7, 6 should be placed in this
+				   position. 
+				
+				Note: If both `frame` and `frames` are null, this entry will represent the 
+				default frame for the given animation and/or directions
+
+				Note: `null` entries at the end of each row are optional; they are only 
+				necessary for explicitly indicating blank spaces in between entried or on 
+				the left side of the layout. 
+
+			
+			OUTPUT should be a filename with one of these extensions:
+
+			- '.json': the layout will be written in the file format described above
+			- '.png': a summary of the layout will be drawn to an image. Note that this 
+			format cannot be read back in
+
+			{layouts_help}
+			""")
+			)
+
+		parser_convertlayout.add_argument('--input',required=True, help='Input layout name or file')
+		parser_convertlayout.add_argument('--output',required=True, help='Output layout file')
+
+
 		args = parser.parse_args(argv, ns)		
 		sub_commands = {
 			'unpack':main_unpack,
 			'repack':main_repack,
 			'pack':main_pack,
 			'distribute':main_distribute,
-			'distribute-repack': main_distribute_repack
+			'distribute-repack': main_distribute_repack,
+			'convert-layout': main_convert_layout
 		}
 
 		sub_commands[args.command](args)

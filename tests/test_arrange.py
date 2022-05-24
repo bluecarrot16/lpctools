@@ -122,6 +122,19 @@ class TestLayout():
 
 		assert (arr.layouts['universal'].to_array().T == universal).all()
 
+	def test_convert_layout(self, tmpdir):
+		import lpctools.arrange
+
+		layout_from_json = lpctools.arrange.load_layout('tests/arrange_files/layout/universal.json')
+		layout_builtin = lpctools.arrange.load_layout('universal')
+		assert layout_from_json == layout_builtin
+
+		layout_builtin.to_json(tmpdir / 'universal.json')
+		assert filecmp.cmp(str(tmpdir / 'universal.json'), 'tests/arrange_files/layout/universal.json')
+
+		layout_builtin.to_image(str(tmpdir / 'universal.png'))
+		assert filecmp.cmp(str(tmpdir / 'universal.png'), 'tests/arrange_files/layout/universal.png')
+
 
 class TestDistribute():
 	def test_image_regexs(self):
