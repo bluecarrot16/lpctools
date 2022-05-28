@@ -200,7 +200,8 @@ def main(argv=None):
 			)
 		parser_palette.add_argument('--input', help='input color palette; format will be inferred from file extension')
 		parser_palette.add_argument('--output', help='output color palette; format will be inferred from file extension')
-		parser_palette.add_argument('--sort', help='sorts the palette by alpha, then luminosity', action='store_const', const='auto')
+		parser_palette.add_argument('--sort', help='sorts the palette by alpha, then luminosity, value, and hue', action='store_const', const='auto')
+		parser_palette.add_argument('--unique', help='remove duplicated colors', action='store_true')
 
 		# convertmapping subcommand
 		parser_convertmapping = subparsers.add_parser('convert-mapping', 
@@ -214,6 +215,7 @@ def main(argv=None):
 			"INPUT is an image, you must specify palette names here, or 
 			recolored images will be named 1.png, 2.png, etc."""))
 		parser_convertmapping.add_argument('--sort', help='sorts the mapping by alpha, then luminosity of the source palette', action='store_const', const='auto')
+		parser_convertmapping.add_argument('--reindex', help='changes the "source" palette of the mapping. Must be a name of a palette in the mapping or integer index')
 
 		# createmapping subcommand
 		parser_mapping = subparsers.add_parser('create-mapping', help='Construct a color mapping from palette(s)',
@@ -230,17 +232,40 @@ def main(argv=None):
 		parser_mapping.add_argument('--to',  dest='target',  action='extend', nargs='+', 
 			help="path(s) to target palette(s); target palettes can be named by writing NAME=PATH")
 		parser_mapping.add_argument('--output', help='Filename to save the output mapping; format will be inferred from extension')
-
-
-
+		parser_mapping.add_argument('--strict', help='Advanced. Compare images pixelwise and produce a mapping of unique colors in SOURCE to unique pixel(s) in TARGET(s)', action='store_true')
 
 
 		parser_increment_shade = subparsers.add_parser('increment-shade', help='Increment each pixel matching a mask to a different color in the palette',
 			description=''
-			# formatter_class=argparse.RawTextHelpFormatter,
-			# epilog=dedent(f"""\
-			# 	{palette_help}
-			# 	""")
+			formatter_class=argparse.RawTextHelpFormatter,
+			epilog=dedent(f"""\
+				Advanced. This command is useful for applying patterns (e.g. stripes) to assets that are already colored. 
+
+				For each MASK_COLOR_N in --increments , increment-shade will identify every 
+				pixel in --mask that contains that color. Each corresponding pixel in each
+				INPUT will be shifted by INCREMENT_N entries in the palette and 
+				written to the corresponding OUTPUT image. Colors in INPUT not matching an
+				entry in PALETTE are copied unchanged to OUTPUT. 
+
+				For example, if:
+
+					--increments #000000=-1 --mask mask.png --input input.png --output output.png
+
+				was given, coordinate (5,20) in mask.png contained a black pixel, and pixel 
+				(5,20) in input.png contained a color equal to palette entry #3: then (5,20) 
+				in output.png would be replaced with palette entry #2.
+
+				This is most useful if the palette has been sorted from darkest to lightest with
+				`arrange convert-palette --sort`. 
+
+				Use --overflow to determine what happens if INCREMENT_N results in an index 
+				outside the range of the palette. For example, for palette length K:
+				- 'squish': indices < 0 will be mapped to 0, and indices >= K will be mapped to K-1
+				- 'overflow': indices < 0 will be mapped to (index + K), and indices > K will be 
+				  mapped to (index - K)
+
+				{palette_help}
+				""")
 			)
 		parser_increment_shade.add_argument('--input', dest='input', action='extend', nargs='+',
 							help='input filename(s)', required=True)
@@ -249,9 +274,9 @@ def main(argv=None):
 							required=True,
 							help='output filename(s)')
 
-		parser_increment_shade.add_argument('--palette')
-		parser_increment_shade.add_argument('--increments', nargs='+', required=True, metavar=('MASK_COLOR_1=INCREMENT_1','MASK_COLOR_2=INCREMENT_2'))
-		parser_increment_shade.add_argument('--overflow', choices=('squish','wrap'), default='squish')
+		parser_increment_shade.add_argument('--palette', required=True, )
+		parser_increment_shade.add_argument('--increments', nargs='+', required=True, metavar=('MASK_COLOR_1=INCREMENT_1','MASK_COLOR_2=INCREMENT_2'), help="For each MASK_COLOR_N, shift pixels in INPUT by to INCREMENT_N colors later in the palette.")
+		parser_increment_shade.add_argument('--overflow', choices=('squish','wrap'), default='squish', help="What do do if INCREMENT_N results in a palette index greater than the length of the palette (or less than zero).")
 		parser_increment_shade.add_argument('--mask',required=True)
 
 		# parser_concat_mappings = subparsers.add_parser('concat-mappings', help='Concatenates one or more mappings',
@@ -266,17 +291,37 @@ def main(argv=None):
 		# parser_concat_mappings.add_argument('--filter', action='extend', nargs='+', help='filter the mapping to only include the listed palettes')
 		# parser_concat_mappings.add_argument('--drop', action='extend', nargs='+', help='filter the mapping to NOT include the listed palettes')
 
+		parser_doctor = subparsers.add_parser('doctor', help='Highlight all pixels that are not found in the palette')
+		parser_doctor.add_argument('--input', required=True)
+		parser_doctor.add_argument('--palette', required=True)
+		parser_doctor.add_argument('--color', default='#ff0000', help='What color to use in the output image for colors not found in the palette')
+		parser_doctor.add_argument('--squish-transparent', default=True, dest='squish_transparent', help='Treat all fully transparent colors as identical, even if they have different RGB values')
+		parser_doctor.add_argument('--ignore-transparent', default=True, dest='ignore_transparent', help='Do not complain if the image includes fully transparent pixels, even if they are missing from the palette')
+		parser_doctor.add_argument('--output', required=True)
+
+
+		parser_difference = subparsers.add_parser('difference', help='Produce a mask indicating pixels where two images are identical')
+		parser_difference.add_argument('--input', nargs='+')
+		parser_difference.add_argument('--output')
+		parser_difference.add_argument('--close', action='store_true', help='Perform morphological closing on the identity mask; useful for removing small dissimilarities and creating larger contiguous regions')
+
+
 
 		args = parser.parse_args(argv, ns)
 
-		from .recolor import main_recolor, main_convertpalette, main_convertmapping, main_create_mapping, main_concat_mappings, main_coerce, main_increment_shade
+		from .recolor import (main_recolor, main_convertpalette, main_convertmapping, 
+				main_create_mapping, main_concat_mappings, 
+				main_coerce, main_increment_shade, main_difference,
+				main_doctor)
 		sub_commands = {
 			'recolor': main_recolor,
 			'convert-palette': main_convertpalette,
 			'convert-mapping': main_convertmapping,
 			'create-mapping': main_create_mapping,
 			'coerce': main_coerce,
-			'increment-shade': main_increment_shade
+			'increment-shade': main_increment_shade,
+			'difference': main_difference,
+			'doctor':main_doctor
 			# ,'concat-mappings': main_concat_mappings
 		}
 
@@ -285,7 +330,10 @@ def main(argv=None):
 
 	def main_arrange(argv, ns=None):
 		
-		from .arrange import layouts, distribute_layers, IMAGE_FRAME_PATTERN, main_pack, main_unpack, main_repack, main_distribute, main_distribute_repack
+		from .arrange import (
+			layouts, distribute_layers, IMAGE_FRAME_PATTERN, 
+			main_pack, main_unpack, main_repack, main_distribute, main_distribute_repack, main_convert_layout, 
+			main_combine, main_separate)
 
 		parser = argparse.ArgumentParser(description='Utilities for arranging and combining images', prog='lpctools arrange')
 		subparsers = parser.add_subparsers(dest='command', title='subcommands', required=True, 
@@ -303,8 +351,8 @@ def main(argv=None):
 		layouts_help = ("Available layouts:\n" +
 			"\n".join(f"- {layout_name}" for layout_name in layouts))
 
-
-
+		# * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *  
+		# pack subcommand
 		parser_pack = subparsers.add_parser('pack', 
 			help='Packs images, one per animation frame, into a spritesheet',
 			formatter_class=argparse.RawTextHelpFormatter,
@@ -320,7 +368,8 @@ def main(argv=None):
 		parser_pack.add_argument('--pattern',default=IMAGE_FRAME_PATTERN, 
 				help="How are images named? See details below (default: '%(default)s)'")
 
-
+		# * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *  
+		# unpack subcommand
 		parser_unpack = subparsers.add_parser('unpack', help='Unpacks a spritesheet into images, one for each animation frame',
 			formatter_class=argparse.RawTextHelpFormatter,
 			epilog=dedent(f"""\
@@ -343,8 +392,8 @@ def main(argv=None):
 			help='Directory where the frame images should be placed')
 		parser_unpack.add_argument('--layout', default='universal')
 
-
-
+		# * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *  
+		# distribute-repack subcommand
 		parser_distrepack = subparsers.add_parser('distribute-repack', 
 			help='Unpacks images from a spritesheet and distributes across another layout',
 			description='Advanced option. Combination of --unpack and --distribute.',
@@ -368,6 +417,44 @@ def main(argv=None):
 			help='Path to image specifying the cutouts/masks for each layer for each frame in TO_LAYOUT')
 
 
+		# * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *  
+		# combine subcommand
+		parser_combine = subparsers.add_parser('combine', help='Combines separate layouts into one layout',
+			formatter_class=argparse.RawTextHelpFormatter,
+			epilog=dedent(f"""\
+			Guesses layouts for several images based on their filenames and combines into a single layout. Special case of repack.
+			
+			{layouts_help}
+			""")
+			)
+
+		parser_combine.add_argument('--input',required=True, help='List of images, or directory containing images', action='extend', nargs='+')
+		parser_combine.add_argument('--layout', default='universal')
+		parser_combine.add_argument('--output', help='output filename')
+
+
+		# * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *  
+		# separate subcommand
+		parser_separate = subparsers.add_parser('separate', help='Separates an image containing multiple animations into separate images, one animation per layout.',
+			formatter_class=argparse.RawTextHelpFormatter,
+			epilog=dedent(f"""\
+			 Special case of repack.
+			
+			{layouts_help}
+			""")
+			)
+
+		parser_separate.add_argument('--input',required=True, help='Packed image', action='extend', nargs='+')
+		parser_separate.add_argument('--layout', dest='from_layouts', default=['universal'], help='Layout(s) of the original spritesheet images', nargs='+')
+		parser_separate.add_argument('--mirror', dest='mirror', default=False, help='w:e to generate east frames by mirroring west frames, e:w for the opposite')
+		parser_separate.add_argument('--output',dest='output_pattern', default=None, 
+			help='Pattern for how to name output files. Use %l to indicate the layout name. Use this or --output_dir, not both.')
+		parser_separate.add_argument('--output-dir',dest='output_dir', default='.', 
+			help='Directory where the repacked spritesheet(s) should be placed; each output file will be named OUTPUT_DIR/TO.png (default: %(default)s)')
+
+
+		# * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *  
+		# repack subcommand
 		parser_repack = subparsers.add_parser('repack', help='Re-packs animation frames from one spritesheet layout to other(s)',
 			formatter_class=argparse.RawTextHelpFormatter,
 			epilog=dedent(f"""\
@@ -496,9 +583,9 @@ def main(argv=None):
 		parser_distribute.add_argument('--output', required=True, action='extend', nargs='+',
 			help='Path where the complete spritesheet(s) should be placed')
 		parser_distribute.add_argument('--layout', default='universal')
-		parser_distribute.add_argument('--offsets', '--offset', required=True, 
+		parser_distribute.add_argument('--offsets', '--offset', required=False, 
 			help='Path to image specifying the x/y coordinate for each frame')
-		parser_distribute.add_argument('--masks', '--mask', required=True, 
+		parser_distribute.add_argument('--masks', '--mask', required=False, 
 			help='Path to image specifying the cutouts/masks for each layer')
 
 
@@ -568,6 +655,8 @@ def main(argv=None):
 			'pack':main_pack,
 			'distribute':main_distribute,
 			'distribute-repack': main_distribute_repack,
+			'combine':main_combine,
+			'separate':main_separate,
 			'convert-layout': main_convert_layout
 		}
 

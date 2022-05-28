@@ -22,6 +22,20 @@ def getrgba(c):
 		return Color(*(rgb + (255,)))
 	else: return Color(*rgb)
 
+def color_text(c, text):
+	r,g,b,*_ = c
+	luminance = ( 0.299 * r + 0.587 * g + 0.114 * b)/255;
+
+	if (luminance > 0.5):
+		d = 0 # bright colors - black font
+	else:
+		d = 255 # dark colors - white font
+
+	return f"\x1b[48;2;{r};{g};{b}m\x1b[38;2;{d};{d};{d}m{text}\x1b[0m"
+	
+	# return f"\x1b[48;2;{r};{g};{b}m\x1b[38;2;{255-r};{255-g};{255-b}m\x1b[0m"
+	# return f"\x1b[38;2;{c[0]};{c[1]};{c[2]}m{text}\x1b[0m\n"
+
 RGBATuple = collections.namedtuple('RGBATuple', ['r','g','b','a'])
 class Color(RGBATuple):
 	def __new__(cls, *args, **kwargs):
@@ -52,7 +66,13 @@ class Color(RGBATuple):
 	def __repr__(self):
 		return f"Color('{self.to_hex()}')"
 
-	def to_hex(self):
+	def drop_alpha(self):
+		"""returns a version of the color with the alpha channel set to 255"""
+		return Color(self.r, self.g, self.b, 255)
+
+	def to_hex(self, color=False):
+		if color:
+			return color_text(self, rgba2hex(*self))
 		return rgba2hex(*self)
 
 	def to_hsv(self):
@@ -71,9 +91,11 @@ class Color(RGBATuple):
 		return tuple(t)
 
 class ImagePalette():
-	def __init__(self, colors=[], name=''):
+	def __init__(self, colors=[], name='', unique=False):
 		# self._colors = [getrgba(c) for c in colors]
 		self._colors = [Color(c) for c in colors]
+		if unique: self._colors = list(dict.fromkeys(self._colors))
+
 		self._dict = dict((c, i) for i, c in enumerate(self._colors))
 		if not name and hasattr(colors, 'name'):
 			self.name = colors.name
@@ -93,7 +115,7 @@ class ImagePalette():
 		return self._colors[i]
 
 	def __repr__(self):
-		r = 'ImagePalette([' + ",".join( f"'{c.to_hex()}'" for c in self._colors ) + ']'
+		r = 'ImagePalette([' + ",".join( f"'{c.to_hex(color=True)}'" for c in self._colors ) + ']'
 		if self.name != '':
 			r += f",name={self.name}"
 		r += ")"
@@ -162,6 +184,62 @@ class ImagePalette():
 
 	def drop_transparent(self):
 		return ImagePalette(c for c in self if c.a != 0)
+
+	def has_alpha(self):
+		"""determines whether colors in palette have alpha values that are not 0 or 255"""
+		return any(c.a != 0 and c.a != 255 for c in self)
+
+	def drop_alpha(self, unique=False):
+		return ImagePalette((c.drop_alpha() for c in self), name=self.name, unique=unique)
+
+	def unique(self):
+		return ImagePalette(self, name=self.name, unique=True)
+
+	def find_colors(self, img, squish_transparent=True, ignore_transparent=True):
+		"""find pixels in img that contain colors in this palette"""
+
+		if isinstance(img, Image.Image):
+			arr = np.array(img)
+		elif isinstance(img, np.array):
+			arr = img
+		else: return None
+
+		if squish_transparent:
+			arr[arr[:,:,3] == 0] = [255,255,255,0]
+
+		found_pixels = np.zeros(arr.shape[0:2])
+
+		colors = list(self)
+		if ignore_transparent:
+			colors = colors + [(255,255,255,0)]
+
+		for c in colors:
+
+			# find pixels in `mask` matching `mask_color`
+			c_arr = Color(c).to_array()
+			found_pixels = np.logical_or(found_pixels, (arr == c_arr[np.newaxis, np.newaxis, :]).all(axis=-1) )
+
+		return found_pixels
+
+	def doctor_image(self, img, color='#ff0000', squish_transparent=True, ignore_transparent=True):
+		# import pdb; pdb.set_trace()
+		# 
+		# find which pixels have colors in palette
+		good_pixels = self.find_colors(img, squish_transparent)
+		bad_pixels = ~good_pixels
+
+		# find unique colors that don't appear in palette
+		bad_pixel_colors = bad_pixels[:,:,np.newaxis].reshape(img.size[0]*img.size[1], 4) 
+		bad_pixel_colors_uniq = unique_rows(bad_pixel_colors).astype(int)
+		bad_palette = ImagePalette(bad_pixel_colors_uniq)
+
+		# generate image showing locations of bad colors
+		c_arr = Color(color).to_array()
+		new_arr = bad_pixels[:,:,np.newaxis] * c_arr
+		return {
+			'colors': bad_palette,
+			'img': Image.fromarray(new_arr)
+		}
 
 	def to_image(self, path=None):
 		img = Image.new('RGBA', size=(len(self), 1))
@@ -260,6 +338,9 @@ def load_palette_gpl(path, name=''):
 	# from PIL.GimpPaletteFile import GimpPaletteFile
 
 def load_palette(path, **kwargs):
+	if isinstance(path, ImagePalette):
+		return path
+
 	basename, ext = os.path.splitext(path)
 
 	palette_loaders = {
@@ -352,6 +433,19 @@ class ImagePaletteMapping(dict):
 	def palettes(self):
 		return [self.source_palette] + self.dest_palettes
 
+	def reindex(self, source_palette, drop_new_source_palette=False):
+		"""Create a new mapping with a different source palette"""
+		if isinstance(source_palette, ImagePalette):
+			return ImagePaletteMapping(source_palette, self.dest_palettes)
+		elif isinstance(source_palette, str):
+			new_dest_palettes = self.dest_palettes.copy()
+			if drop_new_source_palette:
+				new_source_palette = new_dest_palettes.pop(source_palette)
+			else:
+				new_source_palette = new_dest_palettes[source_palette]
+			return ImagePaletteMapping(new_source_palette, new_dest_palettes)
+
+
 	def to_image(self, path=None):
 		# +1 for the source palette
 		img = Image.new('RGBA', size=(len(self), self.n_palettes+1))
@@ -396,11 +490,22 @@ class ImagePaletteMapping(dict):
 
 		return arr
 
-	def recolor_image(self, img):
+	def recolor_image(self, img, src=None):
+		"""
+		recolors an img to all palettes in this mapping
+
+		img : PIL.Image
+			image to recolor
+		src : PIL.Image, optional
+			if given, will search for colors in the source palette within this image, but will write new colors to img
+		"""
 
 		img = img.convert('RGBA')
 
 		# "data" is a numpy array with shape = (height, width, 4) 
+		if src is None: 
+			src = img
+
 		data = np.array(img)   
 
 		# datas is a list of copies of `data`, one per destination palette
@@ -410,7 +515,7 @@ class ImagePaletteMapping(dict):
 		# clone data so when checking for matching colors, we are always referencing the original; 
 		# this is in case one color appears in both the source and the destination palette; we 
 		# don't want to re-map it twice
-		orig = data
+		orig = np.array(src)
 
 
 		# len(self) x n_palettes x 4
@@ -603,15 +708,24 @@ def coerce(img, palette, verbose=False):
 	alphas = None
 	# todo: deal with keeping track of the alpha
 	if img.mode != 'RGB':
-		if verbose: print(f"Warning: converting {img.filename} to RGB; alpha channel will be lost.")
+		if verbose: print(f"Warning: {img.filename} has mode {img.mode}; when comparing to palette colors, alpha channel information will be ignored.")
 
 		if img.mode == 'RGBA':
 			alphas = np.array(img)[:,:,-1]
 
 		img = img.convert('RGB')
 
-	palette_img = palette.to_image().quantize(colors=len(palette), dither=0)
-	img_q =  img.quantize(colors=len(palette), palette=palette_img, dither=0).convert('RGBA')
+	if palette.has_alpha():
+		print(f"Warning: palette has values in the alpha channel; these alpha values will be DROPPED when coercing images to this palette. Alpha values in the final image will be set according to the input image's alpha channel.")
+
+	# import pdb; pdb.set_trace()
+	# drop transparency from palette and remove non-unique values; do these here, otherwise
+	# in palette quantization step, PIL might create additional fake colors
+	palette = palette.drop_alpha(unique=True)
+	palette_img = palette.to_image().convert('RGB').quantize(colors=len(palette), dither=0, method=Image.MAXCOVERAGE)
+
+	# quantize input image to palette
+	img_q =  img.quantize(colors=len(palette), palette=palette_img, dither=0, method=Image.MAXCOVERAGE).convert('RGBA')
 	if alphas is not None:
 		img_q_arr = np.array(img_q)
 		img_q_arr[:,:,-1] = alphas
@@ -716,8 +830,7 @@ def main_increment_shade(args):
 	outputs = args.output
 
 	if len(inputs) != len(outputs):
-		raise Exception()
-
+		raise Exception("Inputs and outputs must be same length")
 
 	#dict(tuple(a.split('=')) for a in args.increments if a.count('=') == 1)
 	color_increments = {} 
@@ -751,9 +864,6 @@ def collapse_recolors(imgs):
 	pass
 
 
-
-
-
 def load_maybe_named_palettes(target_paths, names=None, force_names=True, verbose=False):
 
 	if names is None or len(names) == 0:
@@ -778,6 +888,42 @@ def load_maybe_named_palettes(target_paths, names=None, force_names=True, verbos
 			if not pal.name:
 				pal.name = str(i)
 	return dest_pals
+
+
+def make_mapping_strict(paths):
+	imgs = [Image.open(img) for img in paths]
+	if not all_equal(img.size for img in imgs):
+		raise Exception('To make a strict mapping, all images must have the same dimensions. '
+			f'Dimensions of images given: {[img.size for img in imgs]}')
+	arrs = [np.array(img) for img in imgs]
+	n_pals = len(arrs)
+
+	if n_pals < 2:
+		raise Exception("Can't make mapping from < 2 images")
+
+	# arr.shape = (w,h,4)
+	# want to convert to (w*h, 4)
+	shape = arrs[0].shape
+
+	# arr.reshape((w*h, 4))
+
+	out = np.zeros((shape[0]*shape[1], n_pals * 4))
+
+	# pixels.shape = (w*h, 4*n_pals)
+	# np.concatenate( ( a.reshape((2*3,4)), b.reshape((2*3,4)) ), axis=-1, out=out )
+	pixels = np.concatenate( [ a.reshape((shape[0]*shape[1],4)) for a in arrs ], axis=-1, out=out )
+
+	# pixels_uniq.shape = (n_colors, 4*n_pals)
+	pixels_uniq = unique_rows(pixels).astype(int)
+	n_colors = pixels_uniq.shape[0]
+
+	# pals.shape = (n_colors, n_pals, 4) -> (n_pals, n_colors, 4)
+	pals = pixels_uniq.reshape((n_colors, n_pals, 4)).swapaxes(0, 1)
+
+	source_pal = pals[0,:,:]
+	dest_pals = pals[1:,:,:]
+
+	return ImagePaletteMapping(source_pal, dest_pals)
 
 
 
@@ -808,30 +954,42 @@ def make_mapping(source_path, target_paths, names=None, verbose=False):
 	return colormap
 
 
-def convert_palette(input, output, sort=None, verbose=False):
-	in_pal = load_palette(input)
+def convert_palette(input, output, sort=None, unique=False, verbose=False):
+	pal = load_palette(input)
 	if sort is not None:
-		if verbose: print(f"Sorting by channel {sort}")
-		in_pal = in_pal.sort(sort)
-	save_palette(in_pal, output)
+		if verbose: print(f"Sorting by channel {sort}.")
+		pal = pal.sort(sort)
+	if unique:
+		pal2 = pal.unique()
+		if verbose: 
+			print(f"Dropping non-unique colors: \n"
+				f"- palette before: {pal} \n"
+				f"- palette after: {pal2}. ")
+		pal = pal2
+	save_palette(pal, output)
 
 def main_convertpalette(args):
-	return convert_palette(args.input, args.output)
+	return convert_palette(args.input, args.output, sort=args.sort, unique=args.unique, verbose=args.verbose)
 
 
-def convert_mapping(input, output, names=[], sort=None, verbose=True):
+def convert_mapping(input, output, names=[], sort=None, verbose=True, reindex=None):
 	in_map = load_palette_mapping(input, names=names)
 	if sort is not None:
 		if verbose: print(f"Sorting by channel {sort}")
 		in_map = in_map.sort_colors(sort)
+	if reindex is not None:
+		in_map.reindex(reindex)
 	save_palette_mapping(in_map, output)
 
 def main_convertmapping(args):
-	return convert_mapping(args.input, args.output, args.names, sort=args.sort, verbose=args.verbose)
+	return convert_mapping(args.input, args.output, args.names, sort=args.sort, verbose=args.verbose, reindex=args.reindex)
 
 
 def main_create_mapping(args):
-	colormap = make_mapping(args.source, args.target, verbose=args.verbose)
+	if args.strict:
+		colormap = make_mapping_strict([args.source] + args.target)
+	else: 
+		colormap = make_mapping(args.source, args.target, verbose=args.verbose)
 	if args.verbose: 
 		print(colormap)
 		print(f"Saving mapping to {args.output}")
@@ -844,6 +1002,21 @@ def concat_mappings(mappings, source=None, targets=None, filter=False, drop=Fals
 
 def main_concat_mappings(args):
 	pass
+
+
+def doctor(img, palette, color='#ff0000', squish_transparent=True, ignore_transparent=True):
+	pal = load_palette(palette)
+	return pal.doctor_image(img, color=color)
+
+
+def main_doctor(args):
+	img = Image.open(args.input)
+	palette = load_palette(args.palette)
+	doctored = doctor(img, palette, color=args.color, squish_transparent=args.squish_transparent, ignore_transparent=args.ignore_transparent)
+	img = doctored['img']
+	colors = doctored['colors']
+	if args.verbose: print(f"Colors in image not found in palette: {colors}")
+	img.save(args.output)
 
 
 def main_recolor(args):
@@ -940,6 +1113,10 @@ def recolor(images, mappings, output_paths, mode='sum', verbose=False):
 			# then apply the next mapping to each of the accumulated output images; continue
 			# until no mappings remain
 
+			palette_join_character = '_'
+
+			src = img
+
 			mapped_imgs = [img]
 			palette_paths = ['']
 
@@ -954,8 +1131,8 @@ def recolor(images, mappings, output_paths, mode='sum', verbose=False):
 				mapping_palette_paths = []
 
 				for img, palette_path in zip(mapped_imgs, palette_paths):
-					mapping_out_imgs.extend(mapping.recolor_image(img)) #recolor_map(img, mapping)
-					mapping_palette_paths.extend([palette_path + '-' + palette_name for palette_name in mapping.names])
+					mapping_out_imgs.extend(mapping.recolor_image(img, src=src)) #recolor_map(img, mapping)
+					mapping_palette_paths.extend([palette_path + palette_join_character + palette_name for palette_name in mapping.names])
 					
 				mapped_imgs = mapping_out_imgs
 				palette_paths = mapping_palette_paths
@@ -964,9 +1141,51 @@ def recolor(images, mappings, output_paths, mode='sum', verbose=False):
 
 
 			for (out_img, palette_name) in zip(mapped_imgs, palette_paths):
-				save_img(out_img, palette_name.lstrip('-'))
+				save_img(out_img, palette_name.lstrip(palette_join_character))
 
 		else:
 			raise Exception(f"Unsupported mapping combinator {mode}; choose from 'sum' or 'product'")
 
 
+def main_difference(args):
+	if args.close:
+		import scipy.ndimage
+		# strel = np.array([
+		# 	[0,0,1,0,0],
+		# 	[0,1,1,1,0],
+		# 	[1,1,1,1,1],
+		# 	[0,1,1,1,0],
+		# 	[0,0,1,0,0]
+		# ])
+		# strel = np.array([
+		# 	[0,1,0],
+		# 	[1,1,1],
+		# 	[0,1,0]
+		# ])			
+
+	imgs = [Image.open(img) for img in args.input]
+
+	img1, *imgs = imgs
+	img1_arr = np.array(img1)
+	out_arr = img1_arr.copy()
+
+	for img2 in imgs:
+		img2_arr = np.array(img2)
+
+		# mask = (img1_arr == img2_arr).all(axis=-1)
+		# if args.close:
+		# 	# mask = scipy.ndimage.binary_closing(mask, structure=strel)
+		# 	mask = scipy.ndimage.binary_dilation(mask)
+
+
+		# out_arr[mask,:] = [255,255,255,0]
+
+		mask = (img1_arr != img2_arr).any(axis=-1)
+		if args.close:
+			mask = scipy.ndimage.binary_closing(mask)#, structure=strel)
+			# mask = scipy.ndimage.binary_dilation(mask)
+
+		out_arr[~mask,:] = [255,255,255,0]
+
+	out_img = Image.fromarray(out_arr)
+	out_img.save(args.output)
