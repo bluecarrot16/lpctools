@@ -170,7 +170,7 @@ def main(argv=None):
 		parser_recolor.add_argument('--palette-names', dest='palettes', default=[], action='append', nargs='+', 
 			help=dedent("""\
 			specify or override the names for palettes given in MAPPING. If 
-			"MAPPING is an image, you must specify palette names here, or 
+			"MAPPING is an image, you must specify palette names here, otherwise 
 			recolored images will be named 1.png, 2.png, etc."""))
 
 		parser_recolor.add_argument('--combine', dest='mode', choices=['sum','product'], default='sum', help='how to combine multiple mappings, if specified')
@@ -212,10 +212,10 @@ def main(argv=None):
 		parser_convertmapping.add_argument('--palette-names', dest='names', default=[], action='extend', nargs='+', 
 			help=dedent("""\
 			specify or override the names for palettes given in INPUT. If 
-			"INPUT is an image, you must specify palette names here, or 
+			"INPUT is an image, you must specify palette names here, otherwise 
 			recolored images will be named 1.png, 2.png, etc."""))
 		parser_convertmapping.add_argument('--sort', help='sorts the mapping by alpha, then luminosity of the source palette', action='store_const', const='auto')
-		parser_convertmapping.add_argument('--reindex', help='changes the "source" palette of the mapping. Must be a name of a palette in the mapping or integer index')
+		parser_convertmapping.add_argument('--reindex', help='sets the "source" palette of the mapping to a different palette. Must be a name of a palette in the mapping or integer index')
 
 		# createmapping subcommand
 		parser_mapping = subparsers.add_parser('create-mapping', help='Construct a color mapping from palette(s)',
@@ -236,7 +236,7 @@ def main(argv=None):
 
 
 		parser_increment_shade = subparsers.add_parser('increment-shade', help='Increment each pixel matching a mask to a different color in the palette',
-			description=''
+			description='',
 			formatter_class=argparse.RawTextHelpFormatter,
 			epilog=dedent(f"""\
 				Advanced. This command is useful for applying patterns (e.g. stripes) to assets that are already colored. 
@@ -462,7 +462,7 @@ def main(argv=None):
 			together and used to pack the resulting TO layout(s). If the same frame appears in multiple images, the last occurrance will
 			be used. 
 
-			Will create one image per TO layout.
+			Will create one image per TO_LAYOUT layout.
 
 			If --mirror is given, the value should be two direction letters ('n', 'e', 's', 
 			or 'w') separated by a colon, e.g. `--mirror e:w`
@@ -478,7 +478,7 @@ def main(argv=None):
 		parser_repack.add_argument('--to', dest='to_layouts', default=['cast','thrust','walk','slash','shoot','hurt'], nargs='+', help='New layout(s) to create')
 		parser_repack.add_argument('--mirror', dest='mirror', default=False, help='w:e to generate east frames by mirroring west frames, e:w for the opposite')
 		parser_repack.add_argument('--output',dest='output_pattern', default=None, 
-			help='Pattern for how to name output files. Use %l to indicate the layout name. Use this or --output_dir, not both.')
+			help='Pattern for how to name output files. Use %%l to indicate the layout name. Use this or --output_dir, not both.')
 		parser_repack.add_argument('--output-dir',dest='output_dir', default='.', 
 			help='Directory where the repacked spritesheet(s) should be placed; each output file will be named OUTPUT_DIR/TO.png (default: %(default)s)')
 
