@@ -422,7 +422,7 @@ def main(argv=None):
 		parser_combine = subparsers.add_parser('combine', help='Combines separate layouts into one layout',
 			formatter_class=argparse.RawTextHelpFormatter,
 			epilog=dedent(f"""\
-			Guesses layouts for several images based on their filenames and combines into a single layout. Special case of repack.
+			Guesses layouts for several images based on their filenames and combines into a single layout. (Special case of repack).
 			
 			{layouts_help}
 			""")
@@ -438,7 +438,7 @@ def main(argv=None):
 		parser_separate = subparsers.add_parser('separate', help='Separates an image containing multiple animations into separate images, one animation per layout.',
 			formatter_class=argparse.RawTextHelpFormatter,
 			epilog=dedent(f"""\
-			 Special case of repack.
+			Separates an image containing multiple animations into separate images, one image per animation. (Special case of repack). 
 			
 			{layouts_help}
 			""")
@@ -448,9 +448,9 @@ def main(argv=None):
 		parser_separate.add_argument('--layout', dest='from_layouts', default=['universal'], help='Layout(s) of the original spritesheet images', nargs='+')
 		parser_separate.add_argument('--mirror', dest='mirror', default=False, help='w:e to generate east frames by mirroring west frames, e:w for the opposite')
 		parser_separate.add_argument('--output',dest='output_pattern', default=None, 
-			help='Pattern for how to name output files. Use %l to indicate the layout name. Use this or --output_dir, not both.')
+			help='Pattern for how to name output files. One file will be created per-animation. Use %%l to indicate the layout name. Use this or --output_dir, not both.')
 		parser_separate.add_argument('--output-dir',dest='output_dir', default='.', 
-			help='Directory where the repacked spritesheet(s) should be placed; each output file will be named OUTPUT_DIR/TO.png (default: %(default)s)')
+			help='Directory where the repacked spritesheet(s) should be placed. One file will be created per-animation. Each output file will be named OUTPUT_DIR/ANIMATION_LAYOUT.png. Use this argument --output, not both. (default: %(default)s)')
 
 
 		# * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *  

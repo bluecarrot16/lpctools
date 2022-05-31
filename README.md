@@ -73,11 +73,30 @@ run `lpctools --help`, `lpctools COMMAND --help`, `lpctools COMMAND SUBCOMMAND -
 	lpctools arrange repack --input tests/arrange_files/packed-evert.png --from evert --to universal
 	```
 
-- Split one spritesheet into several spritesheets, one per animation:
+- Split one spritesheet into several spritesheets, one per animation (will create files `arrange_files/_separated/{cast,walk,thrust,slash,shoot,hurt}.png`):
 
 	```bash
-	lpctools arrange repack --input tests/arrange_files/packed-evert.png --from evert --to cast thrust walk slash shoot hurt grab push --output-dir tests/arrange_files/repacked
+	lpctools arrange separate --input tests/arrange_files/male.png --layout universal --output-dir tests/arrange_files/_separated
 	```
+
+	- This can also be accomplished with `repack`; Split one spritesheet into several spritesheets, one per animation:
+
+		```bash
+		lpctools arrange repack --input tests/arrange_files/packed-evert.png --from evert --to cast thrust walk slash shoot hurt grab push --output-dir tests/arrange_files/repacked
+		```
+
+- Combine multiple spritesheets into one larger layout:
+	
+	```bash
+	lpctools arrange combine --input tests/arrange_files/repacked --layout universal --output tests/arrange_files/_combined.png
+	```
+
+	- This can also be accomplished with `repack`; Split one spritesheet into several spritesheets, one per animation:
+
+		```bash
+		lpctools arrange repack --input tests/arrange_files/repacked/{cast,thrust,walk,slash,shoot,hurt}.png --from cast thrust walk slash shoot hurt --to universal --output tests/arrange_files/_combined.png
+		```
+
 
 - Recolor two hairstyles to two different palettes:
 
