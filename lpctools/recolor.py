@@ -439,10 +439,10 @@ class ImagePaletteMapping(dict):
 			return ImagePaletteMapping(source_palette, self.dest_palettes)
 		elif isinstance(source_palette, str):
 			new_dest_palettes = self.dest_palettes.copy()
+			new_source_palette_index = self.names.index(source_palette)
+			new_source_palette = new_dest_palettes[new_source_palette_index]
 			if drop_new_source_palette:
-				new_source_palette = new_dest_palettes.pop(source_palette)
-			else:
-				new_source_palette = new_dest_palettes[source_palette]
+				new_dest_palettes.pop(new_source_palette_index)
 			return ImagePaletteMapping(new_source_palette, new_dest_palettes)
 
 
@@ -978,7 +978,7 @@ def convert_mapping(input, output, names=[], sort=None, verbose=True, reindex=No
 		if verbose: print(f"Sorting by channel {sort}")
 		in_map = in_map.sort_colors(sort)
 	if reindex is not None:
-		in_map.reindex(reindex)
+		in_map = in_map.reindex(reindex)
 	save_palette_mapping(in_map, output)
 
 def main_convertmapping(args):
@@ -1034,8 +1034,19 @@ def main_recolor(args):
 			palette_names = [[]] * len(args.mapping)
 			if args.verbose: print(f"Reading palette mapping(s): {args.mapping}")
 
+
 		for mapping, names in zip(args.mapping, palette_names):
 			mappings.append(load_palette_mapping(mapping, names=names))
+
+		if len(args.reindex) > 0:
+			if len(args.reindex) == 1:
+				reindex = args.reindex * len(args.mapping)
+			elif len(args.reindex) != len(args.mapping):
+				raise Exception("If --reindex is given, it must be given once or given the same number of times as --mapping")
+			else:
+				reindex = args.reindex
+
+			mappings = [mapping.reindex(reindex) for mapping, reindex in zip(mappings, reindex)]
 
 	if len(args.source) > 0 and len(args.target) > 0:
 		if len(mappings) > 0 and args.mode == 'product':

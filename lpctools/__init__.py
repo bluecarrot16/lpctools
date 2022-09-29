@@ -175,6 +175,7 @@ def main(argv=None):
 
 		parser_recolor.add_argument('--combine', dest='mode', choices=['sum','product'], default='sum', help='how to combine multiple mappings, if specified')
 		parser_recolor.add_argument('--output-mapping-image', dest='mapping_output', help="Write an image representation of the palette mapping to this path, if given")
+		parser_recolor.add_argument('--reindex', default=[], action='append', help='if a mapping was given, use a different palette within the the mapping as the "source" palette. Must be a name of a palette in the mapping or integer index')
 
 
 		# coerce subcommand
